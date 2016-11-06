@@ -1,0 +1,9 @@
+*.o
+*.html
+*.c
+*.so
+*.out
+test.py
+__pycache__
+__init__.py
+MATLAB/
