@@ -19,25 +19,58 @@ from datafile import DataFile
 import os
 import re
 # from scipy.special import sph_harm
-# from sympy.functions.special import spherical_harmonics
-import sympy
-from sympy.physics.wigner import wigner_3j
+from sympy.functions.special.spherical_harmonics import Ynm
+from mpmath import spherharm
+# import sympy
+from sympy import re as real_part
+from sympy.physics.wigner import wigner_3j, clebsch_gordan
 from sympy.physics.quantum.cg import CG
-from sympy import KroneckerDelta, evalf, N, simplify, Ynm, im
+from sympy import KroneckerDelta, evalf, N, simplify, im, lambdify, symbols
 import numpy as np
-from numpy import absolute, sqrt, zeros, kron, identity, trace, matrix, array, conjugate
+from numpy import absolute, sqrt, zeros, kron, identity, trace, matrix, array, conjugate, vectorize
+from numpy import matmul
 # from mpmath import fsum
 import copy
-from functools import partial
+from functools import partial, lru_cache
 import time
 from itertools import product
-from math import fsum
+from math import fsum, isnan
+from matrix_operations import *
 
 
 # Uncomment if phase files are in radians:
 # ang_conv = 1
 # Uncomment if phase files are in degrees:
 ang_conv = pi/180
+
+# J1, J2, J3, M1, M2, M3 = symbols('J1, J2, J3, M1, M2, M3')
+# wigner_expr = wigner_3j(J1, J2, J3, M1, M2, M3)
+# wig_lamb = lambdify((J1, J2, J3, M1, M2, M3), wigner_expr, modules='numpy')
+# print(wig_lamb(1, 1, 1, 1, 1, 2))
+
+
+# # @lru_cache(maxsize=None)
+# def py_spherical_harmonics(ell, m, theta, phi):
+#     """Defines a standard memoized version of spherical harmonics.
+#     """
+#     # result = sph_harm(m, ell, phi, theta)
+#     # if isnan(result):
+#     #     return 0
+#     # else:
+#     #     return result
+#     result = spherharm(ell, m, theta, phi)
+#     return result
+
+
+# @lru_cache(maxsize=None)
+# def py_wigner_3j_symbol(j_1, j_2, j_3, m_1, m_2, m_3):
+#     return N(wigner_3j(j_1, j_2, j_3, m_1, m_2, m_3))
+
+
+# @lru_cache(maxsize=None)
+# def my_clebsch_gordan(j_1, m_1, j_2, m_2, j_3, m_3):
+#     # return N(CG(j1, m1, j2, m2, j3, m3).doit())
+#     return N(clebsch_gordan(j_1, j_2, j_3, m_1, m_2, m_3))
 
 
 def p_wave_to_JLS(string):
@@ -123,67 +156,174 @@ def make_S_matrix(delta_dict, epsilon_dict):
     return S_mat
 
 
-def make_M_mat(S_mat, interaction):
-    """Return M dictionary of functions of theta, and phi.
+# def make_M_mat(S_mat, E_list, interaction):
+#     """Return M dictionary of functions of theta, and phi.
 
-    Example:
-    M_mat = make_M_mat(S_mat)
-    print(M_mat[E, Sp, mp, S, m](theta, phi))
-    """
+#     Example:
+#     M_mat = make_M_mat(S_mat)
+#     print(M_mat[E, Sp, mp, S, m](theta, phi))
+#     """
 
-    # This should help when calling the M matrix for multiple angles.
-    # The angles will only be evaluated at the last step.
-    def M(theta, phi, E, S, m, Sp, mp):
-        """Return M mat in millibarns"""
-        fm_sq_to_mb = 10
-        M_term = 0
-        J_set = {tup[1] for tup in S_mat.keys()}
-        for J in J_set:
-            for L in range(max(0, J-1), J+2):
-                for Lp in range(max(0, J-1), J+2):
-                    M_term += 1j**(L - Lp) * (2*J+1) * sqrt(2*L+1) * \
-                        Ynm(Lp, m-mp, theta, phi) * \
-                        wigner_3j(Lp, Sp, J, m-mp, mp, -m) * \
-                        wigner_3j(L, S, J, 0, m, -m) * \
-                        (S_mat[E, J, Lp, Sp, L, S] -
-                            KroneckerDelta(Lp, L)*KroneckerDelta(Sp, S))
-        M_term *= sqrt(4*pi)/(2j * E_to_k(E, interaction))*(-1)**(S-Sp)
-        M_term *= sqrt(fm_sq_to_mb)  # Convert units
-        return N(M_term)
+#     # This should help when calling the M matrix for multiple angles.
+#     # The angles will only be evaluated at the last step.
+#     def M(theta, phi, E, S, m, Sp, mp):
+#         """Return M mat in millibarns"""
+#         fm_sq_to_mb = 10
+#         M_term = 0
+#         J_set = {tup[1] for tup in S_mat.keys()}
+#         for J in J_set:
+#             for L in range(max(0, J-1), J+2):
+#                 for Lp in range(max(0, J-1), J+2):
+#                     M_term += 1j**(L - Lp) * (2*J+1) * sqrt(2*L+1) * \
+#                         my_spherical_harmonics(Lp, m-mp, theta, phi) * \
+#                         my_wigner_3j_symbol(Lp, Sp, J, m-mp, mp, -m) * \
+#                         my_wigner_3j_symbol(L, S, J, 0, m, -m) * \
+#                         (S_mat[E, J, Lp, Sp, L, S] -
+#                             KroneckerDelta(Lp, L)*KroneckerDelta(Sp, S))
+#         M_term *= sqrt(4*pi)/(2j * E_to_k(E, interaction))*(-1)**(S-Sp)
+#         M_term *= sqrt(fm_sq_to_mb)  # Convert units
+#         return M_term
 
-    M_mat = defaultdict(float)
-    E_set = {tup[0] for tup in S_mat.keys()}
-    for E in E_set:
-        for S in range(2):
-            for m in range(-S, S+1):
-                for Sp in range(2):
-                    for mp in range(-Sp, Sp+1):
-                        # Partial is needed to avoid problems with 'late
-                        # binding' for the M function.
-                        M_mat[E, Sp, mp, S, m] = \
-                            partial(M, E=E, S=S, m=m, Sp=Sp, mp=mp)
-    return M_mat
+#     M_mat = defaultdict(float)
+#     # E_set = {tup[0] for tup in S_mat.keys()}
+#     for E in E_list:
+#         for S in range(2):
+#             for m in range(-S, S+1):
+#                 for Sp in range(2):
+#                     for mp in range(-Sp, Sp+1):
+#                         # Partial is needed to avoid problems with 'late
+#                         # binding' for the M function.
+#                         M_mat[E, Sp, mp, S, m] = \
+#                             partial(M, E=E, S=S, m=m, Sp=Sp, mp=mp)
+#     return M_mat
 
 
-def make_uncoupled_M(M_mat, E, theta, phi):
-    M_unc = zeros((4, 4), dtype=complex)
-    m_list = [1/2, -1/2]
-    # "product" saves me from 4 nested for loops!
-    for (mp1_index, mp1), (mp2_index, mp2), (m1_index, m1), (m2_index, m2) \
-            in product(enumerate(m_list), repeat=4):
-        row = len(m_list)*mp1_index + mp2_index
-        col = len(m_list)*m1_index + m2_index
-        the_sum = 0
-        for s, sp in product(range(2), repeat=2):
-            if isinstance(M_mat[E, sp, mp1 + mp2, s, m1 + m2], float):
-                the_sum += M_mat[E, sp, mp1 + mp2, s, m1 + m2]
-            else:
-                the_sum += simplify(
-                    CG(1/2, mp1, 1/2, mp2, sp, mp1 + mp2).doit() *
-                    CG(1/2, m1, 1/2, m2, s, m1 + m2).doit() *
-                    M_mat[E, sp, mp1 + mp2, s, m1 + m2](theta, phi))
-        M_unc[row, col] = the_sum
-    return matrix(M_unc)
+# def make_uncoupled_M(M_mat, E, theta, phi):
+#     M_unc = zeros((4, 4), dtype=complex)
+#     m_list = [1/2, -1/2]
+#     # "product" saves me from 4 nested for loops!
+#     for (mp1_index, mp1), (mp2_index, mp2), (m1_index, m1), (m2_index, m2) \
+#             in product(enumerate(m_list), repeat=4):
+#         row = len(m_list)*mp1_index + mp2_index
+#         col = len(m_list)*m1_index + m2_index
+#         the_sum = 0
+#         for s, sp in product(range(2), repeat=2):
+#             if isinstance(M_mat[E, sp, mp1 + mp2, s, m1 + m2], float):
+#                 the_sum += M_mat[E, sp, mp1 + mp2, s, m1 + m2]
+#             else:
+#                 the_sum += (
+#                     my_clebsch_gordan(1/2, mp1, 1/2, mp2, sp, mp1 + mp2) *
+#                     my_clebsch_gordan(1/2, m1, 1/2, m2, s, m1 + m2) *
+#                     M_mat[E, sp, mp1 + mp2, s, m1 + m2](theta, phi))
+#         M_unc[row, col] = the_sum
+#     return matrix(M_unc)
+
+
+# def make_uncoupled_M_from_scratch(S_mat, interaction, E, theta, phi):
+#     def new_M(E, Sp, mp, S, m, theta, phi):
+#         """Return M mat in millibarns"""
+#         fm_sq_to_mb = 10
+#         M_term = 0
+#         J_set = {tup[1] for tup in S_mat.keys()}
+#         for J in J_set:
+#             for L in range(max(0, J-1), J+2):
+#                 for Lp in range(max(0, J-1), J+2):
+#                     M_term += 1j**(L - Lp) * (2*J+1) * sqrt(2*L+1) * \
+#                         my_spherical_harmonics(Lp, m-mp, theta, phi) * \
+#                         my_wigner_3j_symbol(Lp, Sp, J, m-mp, mp, -m) * \
+#                         my_wigner_3j_symbol(L, S, J, 0, m, -m) * \
+#                         (S_mat[E, J, Lp, Sp, L, S] -
+#                             KroneckerDelta(Lp, L)*KroneckerDelta(Sp, S))
+#         M_term *= sqrt(4*pi)/(2j * E_to_k(E, interaction))*(-1)**(S-Sp)
+#         M_term *= sqrt(fm_sq_to_mb)  # Convert units
+#         return M_term
+
+#     M_unc = zeros((4, 4), dtype=complex)
+#     m_list = [1/2, -1/2]
+#     # "product" saves me from 4 nested for loops!
+#     for (mp1_index, mp1), (mp2_index, mp2), (m1_index, m1), (m2_index, m2) \
+#             in product(enumerate(m_list), repeat=4):
+#         row = len(m_list)*mp1_index + mp2_index
+#         col = len(m_list)*m1_index + m2_index
+#         the_sum = 0
+#         for s, sp in product(range(2), repeat=2):
+#             the_sum += (
+#                 my_clebsch_gordan(1/2, mp1, 1/2, mp2, sp, mp1 + mp2) *
+#                 my_clebsch_gordan(1/2, m1, 1/2, m2, s, m1 + m2) *
+#                 new_M(E, sp, mp1 + mp2, s, m1 + m2, theta, phi))
+#         M_unc[row, col] = the_sum
+#     return matrix(M_unc)
+
+
+# def py_M_singlet_triplet_element(S_mat, interaction, E, Sp, mp, S, m, theta, phi):
+#     """Return M_{sp mp s m}(theta, phi) in millibarns"""
+#     fm_sq_to_mb = 10
+#     M_term = 0
+#     J_set = {tup[1] for tup in S_mat.keys()}
+#     for J in J_set:
+#         for L in range(max(0, J-1), J+2):
+#             for Lp in range(max(0, J-1), J+2):
+#                 M_term += 1j**(L - Lp) * (2*J+1) * sqrt(2*L+1) * \
+#                     py_spherical_harmonics(Lp, m-mp, theta, phi) * \
+#                     py_wigner_3j_symbol(Lp, Sp, J, m-mp, mp, -m) * \
+#                     py_wigner_3j_symbol(L, S, J, 0, m, -m) * \
+#                     (S_mat[E, J, Lp, Sp, L, S] -
+#                         KroneckerDelta(Lp, L)*KroneckerDelta(Sp, S))
+#     M_term *= sqrt(4*pi)/(2j * E_to_k(E, interaction))*(-1)**(S-Sp)
+#     M_term *= sqrt(fm_sq_to_mb)  # Convert units
+#     return M_term
+
+
+# def M_uncoupled_element(S_mat, interaction, E, mp1, mp2, m1, m2, theta, phi):
+#     element = 0
+#     for s, sp in range(2), range(2):
+#         element += (
+#             my_clebsch_gordan(1/2, mp1, 1/2, mp2, sp, mp1 + mp2) *
+#             my_clebsch_gordan(1/2, m1, 1/2, m2, s, m1 + m2) *
+#             M_singlet_triplet_element(
+#                 S_mat, interaction, E, sp, mp1 + mp2, s, m1 + m2, theta, phi
+#                 )
+#             )
+#     return element
+
+
+# def py_singlet_triplet_index(s, m):
+#     if s == 0:
+#         index = 0
+#     else:
+#         index = m + 2
+#     return index
+
+
+# def make_Clebsch_matrix():
+#     c_mat = zeros((4, 4), dtype=float)
+#     m_list = [1/2, -1/2]
+#     # "product" saves me from 2 nested for loops!
+#     for (m1_index, m1), (m2_index, m2) in product(enumerate(m_list), repeat=2):
+#         row = len(m_list)*m1_index + m2_index
+#         for s in range(2):
+#             for m in range(-s, s+1):
+#                 col = singlet_triplet_index(s, m)
+#                 c_mat[row, col] = my_clebsch_gordan(1/2, m1, 1/2, m2, s, m)
+#     return matrix(c_mat)
+
+
+# clebsch_matrix = make_Clebsch_matrix()
+
+
+# def py_make_M_singlet_triplet_matrix(S_mat, interaction, E, theta, phi):
+#     m_mat = zeros((4, 4), dtype=complex)
+#     for s, sp in product(range(2), repeat=2):
+#         for m, mp in product(range(-s, s+1), range(-sp, sp+1)):
+#             row = py_singlet_triplet_index(sp, mp)
+#             col = py_singlet_triplet_index(s, m)
+#             m_mat[row, col] = py_M_singlet_triplet_element(
+#                 S_mat, interaction, E, sp, mp, s, m, theta, phi)
+#     return matrix(m_mat)
+
+
+# def make_M_uncoupled_matrix(M_st):
+#     return clebsch_matrix @ M_st @ clebsch_matrix.T
 
 
 def observable_C_tensor(M_uncoupled, scattered_spin, recoil_spin,
@@ -321,8 +461,8 @@ def differential_cross_section(M_mat, E, theta, phi):
 
 
 def analyzing_power(M_mat, E, theta, phi):
-    return sympy.re(simplify(conjugate(a_saclay(M_mat, E, theta, phi)) *
-                    e_saclay(M_mat, E, theta, phi)))
+    return real_part(simplify(conjugate(a_saclay(M_mat, E, theta, phi)) *
+                     e_saclay(M_mat, E, theta, phi)))
 
 
 def C_llll_or_C_mmmm(M_mat, E, theta, phi):
@@ -341,88 +481,88 @@ def C_nn00_or_C_00nn(M_mat, E, theta, phi):
                   absolute(e_saclay(M_mat, E, theta, phi))**2)
 
 # \hbar^2 / m (MeV-fm^2)
-hbar2_per_m = 41.47105
+# hbar2_per_m = 41.47105
 
 
-# Define the rule to go from energy to momentum
-def E_to_k(E_lab, interaction):
-    """Return k in fm^{-1}.
+# # Define the rule to go from energy to momentum
+# def E_to_k(E_lab, interaction):
+#     """Return k in fm^{-1}.
 
-    Parameters
-    ----------
-    energy      = float
-                  lab energy given in MeV.
-    interaction = str
-                  {"pp", "nn", "np"}
-    """
-    hbarc = 197.33  # Mev-fm
-    p_rel = E_to_p(E_lab, interaction)
+#     Parameters
+#     ----------
+#     energy      = float
+#                   lab energy given in MeV.
+#     interaction = str
+#                   {"pp", "nn", "np"}
+#     """
+#     hbarc = 197.33  # Mev-fm
+#     p_rel = E_to_p(E_lab, interaction)
 
-    return p_rel/hbarc
-
-
-def E_to_p(E_lab, interaction):
-    """Return p in MeV.
-
-    Parameters
-    ----------
-    energy      = float
-                  lab energy given in MeV.
-    interaction = str
-                  {"pp", "nn", "np"}
-    """
-
-    m_p = 938.27208  # MeV/c^2
-    m_n = 939.56541  # MeV/c^2
-    if interaction == "pp":
-        m1, m2 = m_p, m_p
-    if interaction == "nn":
-        m1, m2 = m_n, m_n
-    if interaction == "np":
-        m1, m2 = m_n, m_p
-    p_rel = sqrt(
-        E_lab * m2**2 * (E_lab + 2 * m1) /
-        ((m1 + m2)**2 + 2 * m2 * E_lab)
-        ).real
-    return p_rel
+#     return p_rel/hbarc
 
 
-def p_to_E(p_rel, interaction):
-    """Return E_lab in MeV.
+# def E_to_p(E_lab, interaction):
+#     """Return p in MeV.
 
-    Parameters
-    ----------
-    p_rel       = float
-                  relative momentum given in MeV.
-    interaction = str
-                  {"pp", "nn", "np"}
-    """
-    m_p = 938.27208  # MeV/c^2
-    m_n = 939.56541  # MeV/c^2
-    if interaction == "pp":
-        m1, m2 = m_p, m_p
-    if interaction == "nn":
-        m1, m2 = m_n, m_n
-    if interaction == "np":
-        m1, m2 = m_n, m_p
-    E_lab = (2 * p_rel**2 - 2 * m1 * m2 +
-             2 * sqrt((m1**2 + p_rel**2) * (m2**2 + p_rel**2))) / (2 * m2)
-    return E_lab.real
+#     Parameters
+#     ----------
+#     energy      = float
+#                   lab energy given in MeV.
+#     interaction = str
+#                   {"pp", "nn", "np"}
+#     """
+
+#     m_p = 938.27208  # MeV/c^2
+#     m_n = 939.56541  # MeV/c^2
+#     if interaction == "pp":
+#         m1, m2 = m_p, m_p
+#     if interaction == "nn":
+#         m1, m2 = m_n, m_n
+#     if interaction == "np":
+#         m1, m2 = m_n, m_p
+#     p_rel = sqrt(
+#         E_lab * m2**2 * (E_lab + 2 * m1) /
+#         ((m1 + m2)**2 + 2 * m2 * E_lab)
+#         ).real
+#     return p_rel
 
 
-def k_to_E(k_rel, interaction):
-    """Return E_lab in MeV.
+# def p_to_E(p_rel, interaction):
+#     """Return E_lab in MeV.
 
-    Parameters
-    ----------
-    k_rel       = float
-                  relative momentum given in fm^{-1}.
-    interaction = str
-                  {"pp", "nn", "np"}
-    """
-    hbarc = 197.33  # Mev-fm
-    E_lab = p_to_E(hbarc * k_rel, interaction)
-    return E_lab
+#     Parameters
+#     ----------
+#     p_rel       = float
+#                   relative momentum given in MeV.
+#     interaction = str
+#                   {"pp", "nn", "np"}
+#     """
+#     m_p = 938.27208  # MeV/c^2
+#     m_n = 939.56541  # MeV/c^2
+#     if interaction == "pp":
+#         m1, m2 = m_p, m_p
+#     if interaction == "nn":
+#         m1, m2 = m_n, m_n
+#     if interaction == "np":
+#         m1, m2 = m_n, m_p
+#     E_lab = (2 * p_rel**2 - 2 * m1 * m2 +
+#              2 * sqrt((m1**2 + p_rel**2) * (m2**2 + p_rel**2))) / (2 * m2)
+#     return E_lab.real
+
+
+# def k_to_E(k_rel, interaction):
+#     """Return E_lab in MeV.
+
+#     Parameters
+#     ----------
+#     k_rel       = float
+#                   relative momentum given in fm^{-1}.
+#     interaction = str
+#                   {"pp", "nn", "np"}
+#     """
+#     hbarc = 197.33  # Mev-fm
+#     E_lab = p_to_E(hbarc * k_rel, interaction)
+#     return E_lab
 
 
 def observable_filename(obs_indices, indep_var, ivar_start, ivar_stop,
@@ -469,6 +609,60 @@ def observable_filename(obs_indices, indep_var, ivar_start, ivar_stop,
                "_" + order + "_vnn_kvnn_" + kvnn_dict[order] + ".dat"
     return name
 
+
+# print(clebsch_matrix)
+# interaction = "np"
+# XLO = "N4LO"
+# phase_dir = "../../data/vsrg_EKM_R0p9_kmax15/" + XLO + "/phases/"
+# # # # phase_dir = "../../data/p_wave_analysis/vnn/phases"
+# delta, epsilon = make_phase_dicts(phase_dir)
+# sig = sigma_textbook(delta, epsilon, interaction)
+# # E_list = list({tup[0] for tup in delta.keys()})
+# S_mat = make_S_matrix(delta, epsilon)
+# J_set = {tup[1] for tup in S_mat.keys()}
+# J_array = array(list(J_set), dtype=int)
+# E_list = [50]
+# # E = 50
+# # theta = 100 * ang_conv
+# phi = 0
+
+# for E in range(20, 21):
+#     for theta in range(11, 12):
+#         print("E =", E, "theta =", theta)
+#         print(make_M_singlet_triplet_matrix(S_mat, interaction, J_array, E, theta, phi))
+#         print(py_make_M_singlet_triplet_matrix(S_mat, interaction, E, theta, phi))
+#         print()
+
+# print(my_spherical_harmonics(1, -1, cos(11*pi/180).real))
+
+# start_time = time.time()
+# M_mat = make_M_mat(S_mat, E_list, interaction)
+# M_uncoup = make_uncoupled_M(M_mat, E, theta, phi)
+# print("Working:", M_uncoup)
+
+
+# clebsch_matrix = make_Clebsch_matrix()
+# # print(clebsch_matrix)
+# second_time = time.time()
+# print(second_time - start_time)
+# M_st = make_M_singlet_triplet_matrix(S_mat, interaction, E, theta, phi)
+# m_unc_fast = make_M_uncoupled_matrix(M_st, clebsch_matrix)
+# print("Testing:", m_unc_fast)
+# print(time.time() - second_time)
+# print(M_uncoup - m_unc_fast)
+
+# ll, mm, tt, pp, j_1, j_2, j_3, m_1, m_2, m_3 = symbols('ll mm tt pp j_1 j_2 j_3 m_1 m_2 m_3')
+# from sympy.abc import x
+# my_spherical_harmonics = lambdify((ll, mm, tt, pp), Ynm(ll, mm, tt, pp))
+# my_wigner_3j_symbol = lambdify(x, wigner_3j(j_1, j_2, j_3, m_1, m_2, m_3))
+
+
+# for j1, j2, j3, m1, m2, m3 in product(range(5), repeat=6):
+#     print(j1, j2, j3, m1, m2, m3, my_clebsch_gordan(j1, m1, j2, m2, j3, m3))
+
+# for ell, m, theta, phi in product([0, 1, 2], [0, 0, 2], range(0, 30, 1), range(0, 60, 1)):
+#     print(ell, m, theta, phi, my_spherical_harmonics(ell, m, theta, phi))#, N(Ynm(ell, m, theta, phi)))
+    # N(my_spherical_harmonics(ell, m, theta, phi)), N(Ynm(ell, m, theta, phi))
 
 # ppp = 212
 # for inter in ["pp", "nn", "np"]:
