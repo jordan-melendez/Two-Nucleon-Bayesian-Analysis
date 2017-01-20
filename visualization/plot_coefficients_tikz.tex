@@ -1,0 +1,37 @@
+\documentclass[]{standalone}
+\usepackage{filecontents,pgfplots}
+
+\pgfplotsset{
+    after end axis/.code={
+        \node[above, anchor=south west] at (axis cs:53.5,-5){$R=0.9$\,fm};
+        \node[below, anchor=north west] at (axis cs:50,-5){$\Lambda_b = 600$\,MeV};
+
+    }
+}
+
+\begin{document}
+\pgfplotstableread{C_0-0-0-0_vs_theta_E200_Lamb600_coefficients.txt}{\cn}
+\begin{tikzpicture}[scale=1]
+\begin{axis}[title={$d\sigma/d\Omega$ Expansion Coefficients},
+minor tick num=1,
+ylabel near ticks,
+xlabel={$\theta$ (deg)},
+ylabel=Coefficients,
+ymax = 6,
+ymin = -8.5,
+ytick = {-8, -6, -4, -2, 0, 2, 4, 6},
+xtick = {0, 60, 120, 180},
+legend style={at={(0.01,0.01)}, anchor=south west}]
+\addplot [red, thick] table [x index = 0, y index = 1] {\cn};
+\addlegendentry{LO}
+\addplot [green!65!black, thick] table  [x index = 0, y index = 2] {\cn};
+\addlegendentry{NLO}
+\addplot [cyan,thick] table [x index = 0, y index = 3] {\cn};
+\addlegendentry{N\textsuperscript{2}LO}
+\addplot [violet!50!blue,thick] table [x index = 0, y index = 4] {\cn};
+\addlegendentry{N\textsuperscript{3}LO}
+\addplot [purple!60!violet,thick] table [x index = 0, y index = 5] {\cn};
+\addlegendentry{N\textsuperscript{4}LO}
+\end{axis}
+\end{tikzpicture}
+\end{document}
