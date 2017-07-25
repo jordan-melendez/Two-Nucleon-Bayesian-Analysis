@@ -115,7 +115,7 @@ class DataFile:
             self.add_column(values)
         return self
 
-    def export_to_file(self, file_name):
+    def export_to_file(self, file_name, is_scientific=False):
         with open(file_name, "w+") as f:
             # Set up section and data formatting.
             sec_string = "# "
@@ -128,7 +128,10 @@ class DataFile:
                 elif isinstance(data, float) or isinstance(data, float64) or isinstance(data, Float):
                     # Float columns consume of total of 26 characters.
                     sec_string += "{sec[" + str(i) + "]:^25s}"
-                    data_string += "   {row[" + str(i) + "]:19.15f}   "
+                    if is_scientific:
+                        data_string += "   {row[" + str(i) + "]:.15e}   "
+                    else:
+                        data_string += "   {row[" + str(i) + "]:19.15f}   "
                 else:
                     print("Data type error!", data)
                     return "Data type error!"

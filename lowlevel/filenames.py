@@ -42,6 +42,7 @@ def mesh_filename(phase_file_name, convention):
 
 ###############################################################################
 
+plot_ext = ".eps"
 
 def observable_filename(obs_indices, indep_var, ivar_start, ivar_stop,
                         ivar_step, param_var, param, order, convention,
@@ -106,9 +107,10 @@ def coeff_filename(obs_indices, indep_var, ivar_start, ivar_stop,
 
 
 def dob_filename(obs_indices, indep_var, ivar_start, ivar_stop,
-                 ivar_step, param_var, param, order,
+                 ivar_step, param_var, param, order, ignore_orders,
                  Lambda_b, lambda_mult, X_ref_hash,
                  p_decimal, prior_str, h, convention,
+                 indep_var_list=None,
                  cbar_lower=None, cbar_upper=None, sigma=None,
                  potential_info=None):
     """Return a standard filename for DOB files based on parameters.
@@ -123,6 +125,15 @@ def dob_filename(obs_indices, indep_var, ivar_start, ivar_stop,
     obs_filename = observable_filename(
         obs_indices, indep_var, ivar_start, ivar_stop,
         ivar_step, param_var, param, order, convention, potential_info)
+
+    # print(indep_var_list)
+    if indep_var_list is not None:
+        indep_var_str = indep_var + "-vals"
+        for ivar in indep_var_list:
+            indep_var_str = indep_var_str + "-" + str(ivar)
+        indep_var_str = indep_var_str + "_"
+        obs_filename = re.sub(indep_var + ".*?_", indep_var_str, obs_filename)
+
     obs_split = re.split("_(\w{0,2}?LOp{0,1})[.]dat", obs_filename)
     lamb_mult_str = ""
     try:
@@ -130,7 +141,156 @@ def dob_filename(obs_indices, indep_var, ivar_start, ivar_stop,
             lamb_mult_str = lamb_mult_str + "-" + str(lamb)
     except TypeError:
         lamb_mult_str = lamb_mult_str + "-" + str(lambda_mult)
-    name = """DOB_{name}_Lambdab-{Lambda_b}_lambda-mult{lambda_mult}_Xref-{X_ref_hash}_p-{p_decimal}_prior-{prior_str}_h-{h}_cbarl-{cbar_lower}_cbaru-{cbar_upper}_sigma-{sigma}_{order}.dat""".format(p_decimal=p_decimal, prior_str=prior_str, h=h, cbar_lower=cbar_lower,  cbar_upper=cbar_upper, sigma=sigma, name=obs_split[0], order=order, Lambda_b=Lambda_b, lambda_mult=lamb_mult_str, X_ref_hash=X_ref_hash)
+
+    ig_str = ""
+    if ignore_orders != []:
+        ig_str = "_ig"
+        for ig_ord in ignore_orders:
+            ig_str = ig_str + "-" + str(ig_ord)
+    name_init = obs_split[0] + ig_str
+
+    name = """DOB_{name}_Lambdab-{Lambda_b}_lm{lambda_mult}_Xref-{X_ref_hash}_p-{p_decimal}_prior-{prior_str}_h-{h}_cbl-{cbar_lower}_cbu-{cbar_upper}_sg-{sigma}_{order}.dat""".format(p_decimal=p_decimal, prior_str=prior_str, h=h, cbar_lower=cbar_lower,  cbar_upper=cbar_upper, sigma=sigma, name=name_init, order=order, Lambda_b=Lambda_b, lambda_mult=lamb_mult_str, X_ref_hash=X_ref_hash)
+    return name
+
+
+def Lambda_pdf_filename(
+        obs_indices_list, theta_list, energy_list, order, ignore_orders,
+        X_ref_hash, prior_str, convention,
+        cbar_lower=None, cbar_upper=None, sigma=None, Lambda_prior=None,
+        Lambda_lower=None, Lambda_upper=None, Lambda_mu=None,
+        Lambda_sigma=None, potential_info=None):
+    """
+    """
+    is_energy_range = False
+    is_theta_range = False
+    energy_str = "energy-vals"
+    theta_str = "theta-vals"
+    printed_energy_list = energy_list
+    printed_theta_list = theta_list
+
+    # If list is evenly spaced, make it a range
+    for i in range(len(energy_list)-1):
+        if i == 0:
+            deltaE = energy_list[i+1] - energy_list[i]
+        if deltaE != energy_list[i+1] - energy_list[i]:
+            break
+    else:  # no break
+        if len(energy_list) > 3:
+            is_energy_range = True
+            energy_str = "energy-range"
+            printed_energy_list = [energy_list[0], energy_list[-1]+1, deltaE]
+
+    for i in range(len(theta_list)-1):
+        if i == 0:
+            deltat = theta_list[i+1] - theta_list[i]
+        if deltat != theta_list[i+1] - theta_list[i]:
+            break
+    else:  # no break
+        if len(theta_list) > 3:
+            is_theta_range = True
+            theta_str = "theta-range"
+            printed_theta_list = [theta_list[0], theta_list[-1]+1, deltat]
+
+    obs_filename = observable_filename(
+        obs_indices_list[0], "energy_str", "x", "x", "x", "theta_str", "x",
+        order, convention, potential_info)
+
+    obs_str = ""
+    for obs_indices in obs_indices_list:
+        obs_str = obs_str + indices_to_short_observable_name(obs_indices) + "-"
+
+    obs_str = obs_str[:-1] + "_"
+
+    obs_filename = re.sub("C_\w{1,3}-\w{1,3}-\w{1,3}-\w{1,3}_", obs_str, obs_filename)
+
+    for energy in printed_energy_list:
+        energy_str = energy_str + "-" + str(energy)
+    energy_str = energy_str + "_"
+    # print(energy_str)
+    obs_filename = re.sub(r"energy_str" + ".*?_", energy_str, obs_filename)
+
+    for theta in printed_theta_list:
+        theta_str = theta_str + "-" + str(theta)
+    theta_str = theta_str + "_"
+    obs_filename = re.sub(r"theta_str" + ".*?_", theta_str, obs_filename)
+
+    obs_split = re.split("_(\w{0,2}?LOp{0,1})[.]dat", obs_filename)
+
+    ig_str = ""
+    if ignore_orders != []:
+        ig_str = "_ig"
+        for ig_ord in ignore_orders:
+            ig_str = ig_str + "-" + str(ig_ord)
+    name_init = obs_split[0] + ig_str
+
+    if Lambda_prior == "u" or Lambda_prior == "uu":
+        name = """Lambdab_pdf_{name}_Xref-{X_ref_hash}_prior-{prior_str}_cbl-{cbar_lower}_cbu-{cbar_upper}_sg-{sigma}_Lpr-{Lambda_prior}_Lbl-{Lambda_lower}_Lbu-{Lambda_upper}_{order}.dat""".format(
+            prior_str=prior_str, cbar_lower=cbar_lower, cbar_upper=cbar_upper,
+            sigma=sigma, Lambda_prior=Lambda_prior, Lambda_lower=Lambda_lower,
+            Lambda_upper=Lambda_upper, name=name_init, order=order,
+            X_ref_hash=X_ref_hash)
+    elif Lambda_prior == "g":
+        name = """Lambdab_pdf_{name}_Xref-{X_ref_hash}_prior-{prior_str}_cbl-{cbar_lower}_cbu-{cbar_upper}_sg-{sigma}_Lpr-{Lambda_prior}_Lmu-{Lambda_mu}_Lsg-{Lambda_sigma}_{order}.dat""".format(
+            prior_str=prior_str, cbar_lower=cbar_lower, cbar_upper=cbar_upper,
+            sigma=sigma, Lambda_prior=Lambda_prior, Lambda_mu=Lambda_mu,
+            Lambda_sigma=Lambda_sigma, name=name_init, order=order,
+            X_ref_hash=X_ref_hash)
+    return name
+
+
+def plot_Lambda_pdf_filename(
+        obs_indices_list, theta_list, energy_list, order, ignore_orders,
+        X_ref_hash, prior_str, convention,
+        cbar_lower=None, cbar_upper=None, sigma=None, Lambda_prior=None,
+        Lambda_lower=None, Lambda_upper=None, Lambda_mu=None,
+        Lambda_sigma=None, potential_info=None):
+    name = Lambda_pdf_filename(
+        obs_indices_list=obs_indices_list, theta_list=theta_list,
+        energy_list=energy_list, order=order, ignore_orders=ignore_orders,
+        X_ref_hash=X_ref_hash, prior_str=prior_str, convention=convention,
+        cbar_lower=cbar_lower, cbar_upper=cbar_upper, sigma=sigma,
+        Lambda_prior=Lambda_prior, Lambda_lower=Lambda_lower,
+        Lambda_upper=Lambda_upper, Lambda_mu=Lambda_mu,
+        Lambda_sigma=Lambda_sigma, potential_info=potential_info)
+
+    return "plot_" + name[:-4] + plot_ext
+
+
+def plot_Lambda_violin_pdf_filename(
+        obs_sets, theta_list, energy_list, orders, ignore_orders,
+        X_ref_hash, prior_str, convention,
+        cbar_lower=None, cbar_upper=None, sigma=None,
+        Lambda_prior=None, Lambda_lower=None, Lambda_upper=None,
+        Lambda_mu=None, Lambda_sigma=None,
+        potential_info=None, category=None, orient=None, hue=None, inner=None,
+        split=None, palette=None, scale=None):
+
+    obs_indices = ['0', '0', '0', '0']
+    name = Lambda_pdf_filename(
+        obs_indices_list=[obs_indices], theta_list=theta_list,
+        energy_list=energy_list, order="NLO", ignore_orders=ignore_orders,
+        X_ref_hash=X_ref_hash, prior_str=prior_str, convention=convention,
+        cbar_lower=cbar_lower, cbar_upper=cbar_upper, sigma=sigma,
+        Lambda_prior=Lambda_prior, Lambda_lower=Lambda_lower,
+        Lambda_upper=Lambda_upper, Lambda_mu=Lambda_mu,
+        Lambda_sigma=Lambda_sigma, potential_info=potential_info)
+
+    set_str = "pdf_"
+    ord_str = "ords-"
+    for obset in obs_sets:
+        set_str += obset + "-"
+    set_str = set_str[:-1]
+
+    for order in orders:
+        ord_str += order + "-"
+    ord_str = ord_str[:-1]
+
+    name = re.sub("pdf_" + indices_to_short_observable_name(obs_indices), set_str, name)
+    name = re.sub("NLO", ord_str, name)
+
+    name = "vio_" + name[:-4]
+    name = "{orig}_cat-{category}_hue-{hue}".format(orig=name, category=category, hue=hue)
+    name = name + plot_ext
     return name
 
 
@@ -149,8 +309,9 @@ def npwa_filename(observable, param_name, param_val):
 
 def plot_obs_error_bands_filename(
         obs_indices, indep_var, ivar_start, ivar_stop, ivar_step,
-        param_var, param, order_list, Lambda_b, lambda_mult, X_ref_hash, p_decimal_list,
-        prior_str, h, convention, cbar_lower=None, cbar_upper=None, sigma=None,
+        param_var, param, order_list, ignore_orders, Lambda_b, lambda_mult,
+        X_ref_hash, p_decimal_list, prior_str, h, convention,
+        indep_var_list=None, cbar_lower=None, cbar_upper=None, sigma=None,
         potential_info=None):
 
     p_str_list = ""
@@ -160,9 +321,9 @@ def plot_obs_error_bands_filename(
 
     dob_fn = dob_filename(
         obs_indices, indep_var, ivar_start, ivar_stop,
-        ivar_step, param_var, param, order_list[-1],
+        ivar_step, param_var, param, order_list[-1], ignore_orders,
         Lambda_b, lambda_mult, X_ref_hash,
-        p_str_list, prior_str, h, convention,
+        p_str_list, prior_str, h, convention, indep_var_list,
         cbar_lower, cbar_upper, sigma,
         potential_info)
 
@@ -174,31 +335,67 @@ def plot_obs_error_bands_filename(
     for order in order_list:
         name = name + "-" + order
 
-    return name + ".pdf"
+    return name + plot_ext
+
+
+def plot_res_error_bands_filename(
+        obs_indices, indep_var, ivar_start, ivar_stop, ivar_step,
+        param_var, param, order_list, ignore_orders, Lambda_b, lambda_mult,
+        X_ref_hash, p_decimal_list, prior_str, h, convention,
+        indep_var_list=None, cbar_lower=None, cbar_upper=None, sigma=None,
+        potential_info=None):
+    plot_name = plot_obs_error_bands_filename(
+        obs_indices, indep_var, ivar_start, ivar_stop, ivar_step,
+        param_var, param, order_list, ignore_orders, Lambda_b, lambda_mult,
+        X_ref_hash, p_decimal_list, prior_str, h, convention, indep_var_list,
+        cbar_lower, cbar_upper, sigma, potential_info)
+    name = re.sub("plot", "res", plot_name)
+    return name
 
 
 def subplot_obs_error_bands_filename(
         obs_indices, indep_var, ivar_start, ivar_stop, ivar_step,
-        param_var, param, order_list, Lambda_b, lambda_mult, X_ref_hash, p_decimal_list,
-        prior_str, h, convention, cbar_lower=None, cbar_upper=None, sigma=None,
+        param_var, param, order_list, ignore_orders, Lambda_b, lambda_mult,
+        X_ref_hash, p_decimal_list, prior_str, h, convention,
+        indep_var_list=None, cbar_lower=None, cbar_upper=None, sigma=None,
         potential_info=None):
     plot_name = plot_obs_error_bands_filename(
         obs_indices, indep_var, ivar_start, ivar_stop, ivar_step,
-        param_var, param, order_list, Lambda_b, lambda_mult, X_ref_hash,
-        p_decimal_list, prior_str, h, convention, cbar_lower, cbar_upper,
-        sigma, potential_info)
+        param_var, param, order_list, ignore_orders, Lambda_b, lambda_mult,
+        X_ref_hash, p_decimal_list, prior_str, h, convention, indep_var_list,
+        cbar_lower, cbar_upper, sigma, potential_info)
     name = re.sub("plot", "subplots", plot_name)
+    return name
+
+
+def subplot_res_error_bands_filename(
+        obs_indices, indep_var, ivar_start, ivar_stop, ivar_step,
+        param_var, param, order_list, ignore_orders, Lambda_b, lambda_mult,
+        X_ref_hash, p_decimal_list, prior_str, h, convention,
+        indep_var_list=None, cbar_lower=None, cbar_upper=None, sigma=None,
+        potential_info=None):
+    plot_name = plot_obs_error_bands_filename(
+        obs_indices, indep_var, ivar_start, ivar_stop, ivar_step,
+        param_var, param, order_list, ignore_orders, Lambda_b, lambda_mult,
+        X_ref_hash, p_decimal_list, prior_str, h, convention, indep_var_list,
+        cbar_lower, cbar_upper, sigma, potential_info)
+    name = re.sub("plot", "subres", plot_name)
     return name
 
 
 def plot_coeff_error_bands_filename(
         obs_indices, indep_var, ivar_start, ivar_stop,
         ivar_step, param_var, param, order_list, Lambda_b, lambda_mult,
-        X_ref_hash, convention, potential_info=None):
+        X_ref_hash, convention, prior_set=None,
+        cbar_lower=None, cbar_upper=None, potential_info=None):
 
+    try:
+        order_val = order_list[-1]
+    except IndexError:
+        order_val = "XXLO"
     name = "plot_" + coeff_filename(
             obs_indices, indep_var, ivar_start, ivar_stop,
-            ivar_step, param_var, param, order_list[-1],
+            ivar_step, param_var, param, order_val,
             Lambda_b, lambda_mult, X_ref_hash, convention, potential_info)
 
     name = re.split("_(\w{0,2}?LOp{0,1})", name)[0]
@@ -208,16 +405,22 @@ def plot_coeff_error_bands_filename(
     for order in order_list:
         name = name + "-" + order
 
-    return name + ".pdf"
+    if prior_set is not None and cbar_lower is not None \
+            and cbar_upper is not None:
+        name = name + "_shading-" + prior_set + "-" + \
+            str(cbar_lower) + "-" + str(cbar_upper)
+
+    return name + ".eps"
 
 
 def plot_consistency_filename(
         obs_indices_list, p_start, p_stop, p_step,
-        order_list, Lambda_b, lambda_mult_list,
+        order_list, ignore_orders, Lambda_b, lambda_mult_list,
         X_ref_hash, prior_str, h, convention, combine_obs,
         theta_start=None, theta_stop=None, theta_step=None,
         energy_start=None, energy_stop=None, energy_step=None,
         theta_grid=None, energy_grid=None,
+        indep_var_list=None,
         cbar_lower=None, cbar_upper=None, sigma=None, potential_info=None,
         separate_orders=False
         ):
@@ -230,8 +433,10 @@ def plot_consistency_filename(
     name = dob_filename(
         obs_indices_list[0], indep_var="perc", ivar_start=p_start, ivar_stop=p_stop,
         ivar_step=p_step, param_var=placeholder, param=0, order=order_list[-1],
-        Lambda_b=Lambda_b, lambda_mult=lambda_mult_list, X_ref_hash=X_ref_hash,
+        ignore_orders=ignore_orders, Lambda_b=Lambda_b,
+        lambda_mult=lambda_mult_list, X_ref_hash=X_ref_hash,
         p_decimal=placeholder, prior_str=prior_str, h=h, convention=convention,
+        indep_var_list=None,
         cbar_lower=cbar_lower, cbar_upper=cbar_upper, sigma=sigma,
         potential_info=potential_info)
 
@@ -241,7 +446,12 @@ def plot_consistency_filename(
         order_str = "sep"
     else:
         order_str = "com"
-    for j in range(len(order_list)-1):
+
+    if h == 1:
+        o_range = len(order_list)-1
+    elif h > 1:
+        o_range = len(order_list)
+    for j in range(o_range):
         order_str = order_str + "-" + order_list[j]
     name = re.sub(order_list[-1], order_str, name)
 
@@ -270,34 +480,58 @@ def plot_consistency_filename(
         for theta in theta_grid:
             name = name + "-" + str(theta)
     else:
-        name = name_parts[0] + "theta-range-" + str(theta_start) + "-" + str(theta_stop) + str(theta_step)
+        name = name_parts[0] + "_theta-range-" + str(theta_start) + "-" + str(theta_stop) + "-" + str(theta_step)
 
     if energy_grid is not None:
         name = name + "_energy-vals"
         for energy in energy_grid:
             name = name + "-" + str(energy)
     else:
-        name = name + "energy-range-" + str(energy_start) + "-" + str(energy_stop) + str(energy_step)
+        name = name + "_energy-range-" + str(energy_start) + "-" + str(energy_stop) + "-" + str(energy_step)
 
     name = name + name_parts[1]
 
     name = re.split(".dat", name)[0]
-    name = name + ".pdf"
+    name = name + plot_ext
 
     return name
 
 
 def subplot_6_obs_error_bands_filename(
         obs_indices_list, indep_var, ivar_start, ivar_stop, ivar_step,
-        param_var, param, order_list, Lambda_b, lambda_mult, X_ref_hash, p_decimal_list,
-        prior_str, h, convention, cbar_lower=None, cbar_upper=None, sigma=None,
+        param_var, param, order_list, ignore_orders, Lambda_b, lambda_mult,
+        X_ref_hash, p_decimal_list, prior_str, h, convention,
+        indep_var_list=None, cbar_lower=None, cbar_upper=None, sigma=None,
         potential_info=None):
     plot_name = plot_obs_error_bands_filename(
         obs_indices_list[0], indep_var, ivar_start, ivar_stop, ivar_step,
-        param_var, param, order_list, Lambda_b, lambda_mult, X_ref_hash, p_decimal_list,
-        prior_str, h, convention, cbar_lower, cbar_upper, sigma,
-        potential_info)
+        param_var, param, order_list, ignore_orders, Lambda_b, lambda_mult,
+        X_ref_hash, p_decimal_list, prior_str, h, convention, indep_var_list,
+        cbar_lower, cbar_upper, sigma, potential_info)
     name = re.sub("plot", "subplots", plot_name)
+
+    obs_str = "_"
+    for obs_indices in obs_indices_list:
+        obs_str = obs_str + indices_to_short_observable_name(obs_indices) + "-"
+
+    obs_str = obs_str[:-1] + "_"
+
+    name = re.sub("_C_\w{1,3}-\w{1,3}-\w{1,3}-\w{1,3}_", obs_str, name)
+    return name
+
+
+def subplot_6_res_error_bands_filename(
+        obs_indices_list, indep_var, ivar_start, ivar_stop, ivar_step,
+        param_var, param, order_list, ignore_orders, Lambda_b, lambda_mult,
+        X_ref_hash, p_decimal_list, prior_str, h, convention,
+        indep_var_list=None, cbar_lower=None, cbar_upper=None, sigma=None,
+        potential_info=None):
+    plot_name = plot_obs_error_bands_filename(
+        obs_indices_list[0], indep_var, ivar_start, ivar_stop, ivar_step,
+        param_var, param, order_list, ignore_orders, Lambda_b, lambda_mult,
+        X_ref_hash, p_decimal_list, prior_str, h, convention, indep_var_list,
+        cbar_lower, cbar_upper, sigma, potential_info)
+    name = re.sub("plot", "subres", plot_name)
 
     obs_str = "_"
     for obs_indices in obs_indices_list:
@@ -373,6 +607,29 @@ def indices_to_short_observable_name(observable_index_list):
 
     if observable_index_list == ['0', '0', 'n', 'n']:
         return r'Ayy'
+
+
+def indices_to_residual_name(observable_index_list):
+    if observable_index_list == ['t', 't', 't', 't']:
+        return r'$\sigma_{\text{res}}$'
+
+    if observable_index_list == ['0', '0', '0', '0']:
+        return r'$[d\sigma/d\Omega]_{\text{res}}$'
+
+    if observable_index_list == ['0', '0', 'n', '0']:
+        return r'$A_{y,\,\text{res}}$'
+
+    if observable_index_list == ['n', '0', 'n', '0']:
+        return r'$D_{\text{res}}$'
+
+    if observable_index_list == ['sp', '0', 'k', '0']:
+        return r'$A_{\text{res}}$'
+
+    if observable_index_list == ['0', '0', 's', 's']:
+        return r'$A_{xx,\,\text{res}}$'
+
+    if observable_index_list == ['0', '0', 'n', 'n']:
+        return r'$A_{yy,\,\text{res}}$'
 
 # obs_indices = ['0', 'x', '0', '0']
 # indep_var = "theta"

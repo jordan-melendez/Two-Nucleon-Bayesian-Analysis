@@ -25,8 +25,10 @@ def main(
          ivar_start,
          ivar_stop,
          ivar_step,
+         indep_var_list,
          param_list,
          orders,
+         ignore_orders,
          observable_list,
          Lambda_b,
          lambda_mult,
@@ -44,7 +46,21 @@ def main(
     std_orders_list = ["LO", "NLO", "N2LO", "N3LO", "N4LO"]
     # order_list = std_orders_list[:orders+1]
     k_dict = {"LOp": 0, "LO": 1, "NLO": 2, "N2LO": 3, "N3LO": 4, "N4LO": 5}
-    k_list = [k_dict[order] for order in orders]
+    order_dict = {0: "LOp", 1: "LO", 2: "NLO", 3: "N2LO", 4: "N3LO", 5: "N4LO"}
+    # k_list = [k_dict[order] for order in orders
+    #           if k_dict[order] not in ignore_orders]
+
+    k_list = []
+    k = 0
+    while k in ignore_orders:
+        k += 1
+    while k <= k_dict[orders[-1]]:
+        while k+1 in ignore_orders:
+            k += 1
+        k_list.append(k)
+        k += 1
+
+    # order_list = [order_dict[k] for k in k_list]
     if indep_var == "theta":
         param_var = "energy"
         # theta_rad = ivar * deg_to_rad
@@ -67,36 +83,77 @@ def main(
 
             data = load_observable_data(*files)
             ind_variables = data[0]
-            observable_arrays = data[1:]
+            observable_arrays = list(data[1:])
             # X_ref = get_natural_scale(ind_variables, observable_arrays[1])
             X_ref = get_X_ref(
                 observable_dir, observable, indep_var, ivar_list,
                 param_var, param, X_ref_hash, convention, lambda_mult*Lambda_b,
                 *observable_arrays, X_NPWA_list=None)
 
+            if indep_var_list is not None:
+                indep_var_list_indices = [int((ivar-ivar_start)/ivar_step)
+                                          for ivar in indep_var_list]
+                obs_temp = [[] for obs in observable_arrays]
+                for index, obs in enumerate(observable_arrays):
+                    obs_temp[index] = array([obs[i] for i in indep_var_list_indices])
+                observable_arrays = list(obs_temp)
+                ind_variables = array(indep_var_list)
+                X_ref = array([X_ref[i] for i in indep_var_list_indices])
+
             if indep_var == "theta":
                 Q_val = Q_ratio(E_to_p(param, interaction), lambda_mult*Lambda_b)
             else:
                 Q_val = Q_ratio(E_to_p(ind_variables, interaction), lambda_mult*Lambda_b)
 
-            c_tuple_lists = coeffs(Q_val, *observable_arrays, X_ref=X_ref)
+            # Extract coeffs under assumption that Q^1 isn't in observable_arrays
+            c_tuple_lists = list(coeffs(Q_val, *observable_arrays, X_ref=X_ref))
+            # Make LO and LOp the same, since Q^1 doesn't contribute
+            observable_arrays = [observable_arrays[0]] + observable_arrays
+            c_tuple_lists.insert(1, zeros(len(ind_variables)))
+
+            # Now remove orders we don't care about
+            # Yeah, this will remove what was just added if 1 is ignored.
+            for ig_ord in reversed(ignore_orders):
+                c_tuple_lists.pop(ig_ord)
+                observable_arrays.pop(ig_ord)
+
+            # if indep_var_list is not None:
+            #     indep_var_list_indices = [int((ivar-ivar_start)/ivar_step)
+            #                               for ivar in indep_var_list]
+            #     c_temp_tuple = [[] for c in c_tuple_lists]
+            #     for index, c in enumerate(c_tuple_lists):
+            #         c_temp_tuple[index] = [c[i] for i in indep_var_list_indices]
+            #     c_tuple_lists = tuple(c_temp_tuple)
+            #     ind_variables = indep_var_list
 
             # print(c_tuple[0][199], c_tuple[1][199], c_tuple[2][199], c_tuple[3][199], c_tuple[4][199])
             # print(cbark(*c_tuple))
-            for k, order in zip(k_list, orders):
-                nc = n_c_val(k, [1])
+
+            # If these conditions are met, a formula can be used instead of
+            # VEGAS to find DoBs
+            is_easy_dob = prior_set == "A" and h == 1 and \
+                cbar_lower <= 0.001 and cbar_upper >= 1000
+
+            if not is_easy_dob:
+                print(observable, prior_set, param)
+                pass
+
+            for k in k_list:
+                order = order_dict[k]
+                nc = n_c_val(k, ignore_orders)
                 c_bar_k = cbark(*c_tuple_lists[:nc])
 
-                if prior_set == "A" and h == 1 and cbar_lower <= 0.001 and cbar_upper >= 1000:
+                if is_easy_dob:
                     for p in p_decimal_list:
                         dk = dkp_A_eps(Q_val, k, nc, p, c_bar_k)
 
                         dob_name = dob_filename(
                             observable, indep_var, ivar_start, ivar_stop,
-                            ivar_step, param_var, param, order,
+                            ivar_step, param_var, param, order, ignore_orders,
                             Lambda_b, lambda_mult, X_ref_hash,
                             p, prior_set, h, convention,
-                            cbar_lower, cbar_upper, sigma)
+                            indep_var_list, cbar_lower, cbar_upper, sigma,
+                            potential_info=None)
                         dob_file = DataFile().write(
                             (indep_var + " " + ivar_units, ind_variables),
                             ("Observable", observable_arrays[nc-1]),
@@ -105,29 +162,65 @@ def main(
                         dob_file.export_to_file(os.path.join(output_dir, dob_name))
                 else:
                     dk = [[] for p in p_decimal_list]
-                    for c_tuple in zip(*c_tuple_lists):
-                        print(observable, param, k, c_tuple[:nc])
+                    for c_index, c_tuple in enumerate(zip(*c_tuple_lists)):
+                        try:
+                            qq = Q_val[c_index]
+                        except IndexError:
+                            qq = Q_val
+                        # print(prior_set, observable, param, k,
+                        #       array(c_tuple[:nc]), qq)
                         pr_deltak = Delta_k_posterior(
-                            prior_set=prior_set, Q=Q_val, k=k, nc=nc, h=h,
-                            coeffs=array(c_tuple), cbar_lower=cbar_lower,
+                            prior_set=prior_set, Q=qq, k=k, nc=nc,
+                            h=h, coeffs=array(c_tuple), cbar_lower=cbar_lower,
                             cbar_upper=cbar_upper, sigma=sigma)
                         try:
-                            x_crit = find_insignificant_x(pr_deltak)
-                        else:
-                            pass
+                            # x_crit = find_insignificant_x(pr_deltak)
+                            # print(qq, c_bar_k)
+                            c_crit = c_bar_k[c_index]
+                            if prior_set == "B":
+                                if c_crit < np.exp(sigma)/10:
+                                    c_crit = np.exp(sigma)/10
+                                elif c_crit > np.exp(sigma)*10:
+                                    c_crit = np.exp(sigma)*10
+                            else:
+                                if c_crit < cbar_lower:
+                                    c_crit = cbar_lower
+                                elif c_crit > cbar_upper:
+                                    c_crit = cbar_upper
+
+                            x_crit = 2 * c_crit * qq**(k+1)
+                        except ZeroDivisionError:
+                            print("x_crit could not be found!\n",
+                                  "Prior:", prior_set, "\n",
+                                  observable, "\n",
+                                  "Param:", param, "\n",
+                                  "k:", k, "\n",
+                                  "n_c:", nc, "\n",
+                                  "clist:", array(c_tuple), "\n",
+                                  "Q:", qq
+                                  )
+                            print("x_crit:", x_crit)
 
                         for index, p in enumerate(p_decimal_list):
-                            dk[index].append(find_dimensionless_dob_limit(
-                                pr_deltak, x_mode=0, delta_x=x_crit/100, dob=p)
-                                )
+                            # try:
+                            #     # print(x_crit/100, p)
+                            #     dob = find_dimensionless_dob_limit(pr_deltak, x_mode=0, delta_x=x_crit/100, dob=p)
+                            # except RuntimeWarning:
+                            #     print(observable, prior_set, param, k, nc, array(c_tuple), qq)
+                            #     print(x_crit/100, p)
+                                # dob = find_dimensionless_dob_limit(pr_deltak, x_mode=0, delta_x=x_crit/100, dob=p)
+
+                            dob = find_dimensionless_dob_limit(pr_deltak, x_mode=0, delta_x=x_crit/100, dob=p)
+                            dk[index].append(dob)
 
                     for ind, p in enumerate(p_decimal_list):
                         dob_name = dob_filename(
                             observable, indep_var, ivar_start, ivar_stop,
-                            ivar_step, param_var, param, order,
+                            ivar_step, param_var, param, order, ignore_orders,
                             Lambda_b, lambda_mult, X_ref_hash,
                             p, prior_set, h, convention,
-                            cbar_lower, cbar_upper, sigma)
+                            indep_var_list, cbar_lower, cbar_upper, sigma,
+                            potential_info=None)
                         dob_file = DataFile().write(
                             (indep_var + " " + ivar_units, ind_variables),
                             ("Observable",
@@ -148,7 +241,6 @@ def main(
                     #     observable, indep_var, ivar_start, ivar_stop,
                     #     ivar_step, param_var, param, all_orders_list[k])
                     
-
 
 if __name__ == "__main__":
     ###########################################
@@ -206,7 +298,11 @@ if __name__ == "__main__":
         type=int, nargs=3,
         metavar=("start", "stop", "step"),
         required=True,
-        help="Cycle indep_var through [start, stop) in increments of step.")
+        help="Cycle indep_var through [start, stop) in increments of step. If indep_var_list is given, this is still used to find the correct observable files.")
+    parser.add_argument(
+        "--indep_var_list",
+        help="The values of the indep var at which to find error bands. If none, use the indep_var range",
+        type=int, nargs="+")
     param_group = parser.add_mutually_exclusive_group(required=True)
     param_group.add_argument(
         "--param_values", "--pvals",
@@ -228,6 +324,11 @@ if __name__ == "__main__":
         help="The orders at which to calculate DoBs.",
         nargs="+", required=True,
         choices=["LO", "NLO", "N2LO", "N3LO", "N4LO"])
+    parser.add_argument(
+        "--ignore_orders",
+        help="The kth orders (Q^k) to ignore when calculating DoBs.",
+        nargs="+", type=int,
+        choices=[0, 1, 2, 3, 4, 5])
     parser.add_argument(
         "--observables",
         metavar="p,q,i,k",
@@ -287,6 +388,11 @@ if __name__ == "__main__":
         cup = arg_dict["cbar_upper"]
         clow = arg_dict["cbar_lower"]
 
+    if arg_dict["ignore_orders"] is None:
+        ignore_orders = []
+    else:
+        ignore_orders = arg_dict["ignore_orders"]
+
     main(
         observable_dir=arg_dict["observable_dir"],
         output_dir=arg_dict["output_dir"],
@@ -294,8 +400,10 @@ if __name__ == "__main__":
         ivar_start=arg_dict["indep_var_range"][0],
         ivar_stop=arg_dict["indep_var_range"][1],
         ivar_step=arg_dict["indep_var_range"][2],
+        indep_var_list=arg_dict["indep_var_list"],
         param_list=param_lst,
         orders=arg_dict["orders"],
+        ignore_orders=ignore_orders,
         observable_list=arg_dict["observables"],
         Lambda_b=arg_dict["Lambda_b"],
         lambda_mult=arg_dict["lambda_mult"],

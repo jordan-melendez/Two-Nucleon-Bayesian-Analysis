@@ -10,6 +10,10 @@ from matplotlib import rcParams
 import matplotlib.patches as mpatches
 from matplotlib.legend_handler import HandlerPatch, HandlerLine2D
 from matplotlib.patches import Rectangle
+import matplotlib.ticker as ticker
+from matplotlib.ticker import MaxNLocator, AutoMinorLocator
+from subprocess import call
+
 
 rcParams['ps.distiller.res'] = 60000
 rc('font', **{'family': 'serif', 'serif': ['Computer Modern'], 'size': 10})
@@ -42,6 +46,7 @@ def main(
         lambda_mult,
         p_decimal_list,
         orders,
+        ignore_orders,
         interaction,
         X_ref_hash,
         prior_set,
@@ -75,28 +80,63 @@ def main(
         indep_var_label = r"$\theta$ (deg)"
         param_var_label = r"$E_{\mathrm{lab}}"
         param_var_units = r"$ MeV"
+        xmin = 0
+        xmax = 180
     else:
         param_var = "theta"
         indep_var_label = r"$E$ (MeV)"
         param_var_label = r"$\theta"
         param_var_units = r"^\circ$"
+        xmin = 0
+        xmax = 350
 
     for observable in observable_list:
         for param in param_list:
             if observable == ["t", "t", "t", "t"] or \
-                (observable == ["0", "0", "0", "0"] and indep_var == "energy"):
+                    (observable == ["0", "0", "0", "0"] and indep_var == "energy"):
                 ax.set_yscale("log", nonposy='clip')
 
             ax.set_xlabel(indep_var_label)
             # ax.set_ylabel('')
 
+            # if indep_var == "theta":
+            #     major_tick_spacing = 60
+            #     minor_tick_spacing = 20
+            #     ax.xaxis.set_major_locator(
+            #         ticker.MultipleLocator(major_tick_spacing))
+            #     ax.xaxis.set_minor_locator(
+            #         ticker.MultipleLocator(minor_tick_spacing))
+
+            if indep_var == "energy":
+                major_ticks = np.arange(0, 351, 100)
+                # minor_ticks = np.arange(50, 351, 100)
+                x_minor_locator = AutoMinorLocator(n=2)
+            elif indep_var == "theta":
+                major_ticks = np.arange(0, 181, 60)
+                # minor_ticks = np.arange(0, 181, 20)
+                x_minor_locator = AutoMinorLocator(n=3)
+
+            ax.xaxis.set_minor_locator(x_minor_locator)
+            ax.set_xticks(major_ticks)
+
             # Create the description box
             # text_str = r"$C_{" + observable[0] + observable[1] + \
             #     observable[2] + observable[3] + r"}$" + ", "  # + "\n"
-            text_str = indices_to_observable_name(observable) + ", "
-            if observable != ['t', 't', 't', 't']:
-                text_str += param_var_label + r" = " + str(param) + param_var_units + ", "  # + "\n"
-            text_str += r"$\Lambda_b = " + str(lambda_mult*Lambda_b) + r"$ MeV"
+            text_str = indices_to_observable_name(observable)
+            if observable == ['t', 't', 't', 't']:
+                text_str += " (mb)"
+            elif observable == ['0', '0', '0', '0']:
+                text_str += " (mb/sr)"
+
+            # Probably don't include this extra info. Leave for caption.
+            #
+            # text_str += ", "
+            # if observable != ['t', 't', 't', 't']:
+            #     text_str += ", " + param_var_label + r" = " + str(param) + param_var_units + ", "  # + "\n"
+            # text_str += r"$\Lambda_b = " + str(lambda_mult*Lambda_b) + r"$ MeV"
+
+            # Don't put in a text box
+            #
             # ax.text(.5, .96, text_str,
             #         horizontalalignment='center',
             #         verticalalignment='top',
@@ -104,16 +144,21 @@ def main(
             #         transform=ax.transAxes,
             #         bbox=dict(facecolor='white', alpha=1, boxstyle='square', pad=.5),
             #         zorder=20)
-            plt.title(text_str, fontsize=10)
+
+            # Don't put in the title
+            # plt.title(text_str, fontsize=10)
+
+            # Instead use y axis
+            ax.set_ylabel(text_str, fontsize=10)
             legend_patches = []
 
             try:
                 npwa_name = npwa_filename(observable, param_var, param)
                 npwa_file = DataFile().read(os.path.join("../npwa_data/", npwa_name))
                 npwa_plot, = ax.plot(npwa_file[0], npwa_file[1],
-                                     color="black", linewidth=2,
+                                     color="black", linewidth=1,
                                      label="NPWA", zorder=10,
-                                     linestyle="-.")
+                                     linestyle="--")
             except FileNotFoundError:
                 npwa_plot = None
 
@@ -125,9 +170,9 @@ def main(
                 # dob_name = dob_filename(p_decimal_list[0], Lambda_b, obs_name)
                 dob_name = dob_filename(
                     observable, indep_var, ivar_start, ivar_stop,
-                    ivar_step, param_var, param, order,
+                    ivar_step, param_var, param, order, ignore_orders,
                     Lambda_b, lambda_mult, X_ref_hash,
-                    p_decimal_list[0], prior_set, h, convention,
+                    p_decimal_list[0], prior_set, h, convention, None,
                     cbar_lower, cbar_upper, sigma,
                     potential_info=None)
                 dob_file = DataFile().read(os.path.join(error_band_dir, dob_name))
@@ -144,10 +189,13 @@ def main(
 
             # Decide the padding above/below the lines
             # This weights values far from 0 more heavily.
-            ymin = obs_min - .25 * abs(obs_min)
-            ymax = obs_max + .25 * abs(obs_max)
+            # ymin = obs_min - .25 * abs(obs_min)
+            # ymax = obs_max + .25 * abs(obs_max)
+            ymin = -1
+            ymax = 20
             ax.set_ylim([ymin, ymax])
-            ax.set_xlim([ivar_start, ivar_stop-1])
+            # ax.set_xlim([ivar_start, ivar_stop-1])
+            ax.set_xlim([xmin, xmax])
 
             # Start layering the plots
             for i, order in enumerate(orders):
@@ -157,9 +205,9 @@ def main(
                 # dob_name = dob_filename(p_decimal_list[0], Lambda_b, obs_name)
                 dob_name = dob_filename(
                     observable, indep_var, ivar_start, ivar_stop,
-                    ivar_step, param_var, param, order,
+                    ivar_step, param_var, param, order, ignore_orders,
                     Lambda_b, lambda_mult, X_ref_hash,
-                    p_decimal_list[0], prior_set, h, convention,
+                    p_decimal_list[0], prior_set, h, convention, None,
                     cbar_lower, cbar_upper, sigma,
                     potential_info=None)
                 dob_file = DataFile().read(os.path.join(error_band_dir, dob_name))
@@ -173,9 +221,9 @@ def main(
                     # dob_name = dob_filename(p, Lambda_b, obs_name)
                     dob_name = dob_filename(
                         observable, indep_var, ivar_start, ivar_stop,
-                        ivar_step, param_var, param, order,
+                        ivar_step, param_var, param, order, ignore_orders,
                         Lambda_b, lambda_mult, X_ref_hash,
-                        p, prior_set, h, convention,
+                        p, prior_set, h, convention, None,
                         cbar_lower, cbar_upper, sigma,
                         potential_info=None)
                     dob_file = DataFile().read(os.path.join(error_band_dir, dob_name))
@@ -219,9 +267,9 @@ def main(
 
                 ax.legend(loc="best", handles=my_handles,
                           handler_map=handler_dict,
-                          handletextpad=.7,
+                          handletextpad=.8,
                           handlelength=.6,
-                          fontsize=10)
+                          fontsize=8)
 
                 # Squeeze and save it
                 plt.tight_layout()
@@ -231,11 +279,14 @@ def main(
                 #         Lambda_b, p_decimal_list)
                 plot_name = plot_obs_error_bands_filename(
                     observable, indep_var, ivar_start, ivar_stop, ivar_step,
-                    param_var, param, orders[:i+1], Lambda_b, lambda_mult,
-                    X_ref_hash, p_decimal_list,
-                    prior_set, h, convention, cbar_lower, cbar_upper, sigma,
-                    potential_info=None)
+                    param_var, param, orders[:i+1], ignore_orders, Lambda_b,
+                    lambda_mult, X_ref_hash, p_decimal_list,
+                    prior_set, h, convention, None, cbar_lower, cbar_upper,
+                    sigma, potential_info=None)
                 fig.savefig(os.path.join(output_dir, plot_name), bbox_inches="tight")
+
+                call(["epstopdf", os.path.join(output_dir, plot_name)])
+                call(["rm", os.path.join(output_dir, plot_name)])
 
             # Clear the axes for the next observable/parameter.
             plt.cla()
@@ -302,6 +353,11 @@ if __name__ == "__main__":
         type=str, nargs="+",
         required=True, choices=["LOp", "LO", "NLO", "N2LO", "N3LO", "N4LO"])
     parser.add_argument(
+        "--ignore_orders",
+        help="The kth orders (Q^k) to ignore when calculating DoBs.",
+        nargs="+", type=int,
+        choices=[0, 1, 2, 3, 4, 5])
+    parser.add_argument(
         "--indep_var_range", "--irange",
         type=int, nargs=3,
         metavar=("start", "stop", "step"),
@@ -358,6 +414,11 @@ if __name__ == "__main__":
         cup = arg_dict["cbar_upper"]
         clow = arg_dict["cbar_lower"]
 
+    if arg_dict["ignore_orders"] is None:
+        ignore_orders = []
+    else:
+        ignore_orders = arg_dict["ignore_orders"]
+
     main(
         error_band_dir=arg_dict["error_band_dir"],
         output_dir=arg_dict["output_dir"],
@@ -371,6 +432,7 @@ if __name__ == "__main__":
         lambda_mult=arg_dict["lambda_mult"],
         p_decimal_list=arg_dict["p_decimals"],
         orders=arg_dict["orders"],
+        ignore_orders=ignore_orders,
         interaction=arg_dict["interaction"],
         X_ref_hash=arg_dict["X_ref_hash"],
         prior_set=arg_dict["prior_set"],

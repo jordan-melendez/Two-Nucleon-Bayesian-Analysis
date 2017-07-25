@@ -34,6 +34,7 @@ def E_to_p_element(E_lab, interaction):
 
 
 E_to_p = vectorize(E_to_p_element, excluded=["interaction"])
+# print(E_to_p(300, "np"))
 
 
 def E_to_k(E_lab, interaction):

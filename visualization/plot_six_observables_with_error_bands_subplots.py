@@ -11,9 +11,14 @@ from matplotlib import rcParams
 import matplotlib.patches as mpatches
 from matplotlib.legend_handler import HandlerPatch
 from matplotlib.patches import Rectangle
+from matplotlib.offsetbox import AnchoredOffsetbox, TextArea, DrawingArea, HPacker, VPacker, OffsetBox
+from matplotlib.ticker import MaxNLocator, AutoMinorLocator
+from matplotlib.legend_handler import HandlerTuple
+from matplotlib.collections import BrokenBarHCollection
+from subprocess import call
 
 
-rcParams['ps.distiller.res'] = 60000
+# rcParams['ps.distiller.res'] = 60000
 rc('font', **{'family': 'serif', 'serif': ['Computer Modern'], 'size': 10})
 # # for Palatino and other serif fonts use:
 # rc('font',**{'family':'serif','serif':['Palatino']})
@@ -42,8 +47,10 @@ def main(
         param_list,
         observable_list,
         Lambda_b,
+        lambda_mult,
         p_decimal_list,
         orders,
+        ignore_orders,
         interaction,
         X_ref_hash,
         prior_set,
@@ -63,9 +70,168 @@ def main(
         "N3LO": plt.get_cmap("Blues"),
         "N4LO": plt.get_cmap("Reds")
     }
+    color_list = [
+        plt.get_cmap("Oranges")(0.6),
+        plt.get_cmap("Greens")(0.6),
+        plt.get_cmap("Blues")(0.6),
+        plt.get_cmap("Reds")(0.6)
+        ]
 
     fill_transparency = 1
     x = np.arange(ivar_start, ivar_stop, ivar_step)
+
+    kw_list = []
+    for i, order in enumerate(orders):
+        kw_list.append(
+            {
+                "edgecolor": color_dict[order](.99),
+                "facecolor": color_dict[order](len(p_decimal_list) / (len(p_decimal_list) + 1)),
+                # label=order,
+                "linewidth": 1
+            }
+        )
+    word_boxes = []
+    orders_list = [r"NLO", r"N$^2$LO", r"N$^3$LO", r"N$^4$LO"]
+    for word in orders_list:
+        ta = TextArea(
+                     word,
+                     textprops=dict(color="k",
+                                    rotation=-90,
+                                    va="bottom",
+                                    ha="right",
+                                    rotation_mode="anchor",
+                                    size=8
+                                    ),
+                     )
+        word_boxes.append(
+            ta
+        )
+
+    testfig = plt.figure()
+    patches_list = []
+    # mpatches.Rectangle(
+    #                     (0.5, 0.5), 5, 5,
+    #                     # color=color_dict[order](len(p_decimal_list) / (len(p_decimal_list) + 1)),
+    #                     edgecolor=color_dict[order](.9),
+    #                     facecolor=color_dict[order](len(p_decimal_list) / (len(p_decimal_list) + 1)),
+    #                     label=order,
+    #                     linewidth=1
+    #                 )
+    patch_width = 7
+    patch_height = 13
+    patch_x = 2 - patch_width/2
+    patch_y = 0
+    bar_start = -1
+    bar_light_width = 2.2
+    bar_dark_width = 1.3
+    bar_line_width = 0
+
+    for i, order in enumerate(orders):
+        if i == 0:
+            lne = plt.Line2D((0, 0), (0, 14), color="black")
+            rec = mpatches.Rectangle(
+                (patch_x, patch_y),
+                patch_width,
+                patch_height,
+                **kw_list[i]
+                )
+            # leg = testfig.legend((rec, lne), ("rec", "line"))
+            # hndls, labelssss = plt.get_handles_labels()
+            hndls = BrokenBarHCollection(
+                xranges=(
+                         (bar_start, 2*bar_light_width+2*bar_dark_width+bar_line_width),
+                         (bar_start+bar_light_width, 2*bar_dark_width),
+                         # (bar_start+bar_light_width+bar_dark_width, bar_line_width),
+                         # (bar_start+bar_light_width+bar_dark_width+bar_line_width, bar_dark_width),
+                         # (bar_start+bar_light_width+2*bar_dark_width+bar_line_width, bar_light_width)
+                         ),
+                yrange=(0, 14),
+                facecolors=(color_dict[order](1 / (len(p_decimal_list) + 1)),
+                            color_dict[order](2 / (len(p_decimal_list) + 1)),
+                            # color_dict[order](.99),
+                            color_dict[order](2 / (len(p_decimal_list) + 1)),
+                            color_dict[order](1 / (len(p_decimal_list) + 1))
+                            ),
+                edgecolor=color_dict[order](.99),
+                # edgewidth=.6,
+                linewidths=(0.4, 0),
+                antialiaseds=True
+                )
+            # hndls = HandlerTuple(leg)
+            patches_list.append(
+                # rec
+                hndls
+            )
+        else:
+            # patches_list.append(mpatches.Rectangle(
+            #     (patch_x, patch_y),
+            #     patch_width,
+            #     patch_height,
+            #     **kw_list[i]
+            #     )
+            # )
+            # hndls = BrokenBarHCollection(
+            #     # xranges=((-3, 3), (0, 2), (2, 1), (3, 2), (5, 3))
+            #     xranges=(
+            #              (bar_start, bar_light_width),
+            #              (bar_start+bar_light_width, bar_dark_width),
+            #              (bar_start+bar_light_width+bar_dark_width, bar_line_width),
+            #              (bar_start+bar_light_width+bar_dark_width+bar_line_width, bar_dark_width),
+            #              (bar_start+bar_light_width+2*bar_dark_width+bar_line_width, bar_light_width)
+            #              ),
+            #     yrange=(0, 14),
+            #     facecolors=(color_dict[order](1 / (len(p_decimal_list) + 1)),
+            #                 color_dict[order](2 / (len(p_decimal_list) + 1)),
+            #                 color_dict[order](.99),
+            #                 color_dict[order](2 / (len(p_decimal_list) + 1)),
+            #                 color_dict[order](1 / (len(p_decimal_list) + 1))
+            #                 ),
+            #     linewidths=0,
+            #     antialiaseds=True
+            #     )
+            hndls = BrokenBarHCollection(
+                xranges=(
+                         (bar_start, 2*bar_light_width+2*bar_dark_width+bar_line_width),
+                         (bar_start+bar_light_width, 2*bar_dark_width),
+                         # (bar_start+bar_light_width+bar_dark_width, bar_line_width),
+                         # (bar_start+bar_light_width+bar_dark_width+bar_line_width, bar_dark_width),
+                         # (bar_start+bar_light_width+2*bar_dark_width+bar_line_width, bar_light_width)
+                         ),
+                yrange=(0, 14),
+                facecolors=(color_dict[order](1 / (len(p_decimal_list) + 1)),
+                            color_dict[order](2 / (len(p_decimal_list) + 1)),
+                            # color_dict[order](.99),
+                            color_dict[order](2 / (len(p_decimal_list) + 1)),
+                            color_dict[order](1 / (len(p_decimal_list) + 1))
+                            ),
+                edgecolor=color_dict[order](.99),
+                # edgewidth=.6,
+                linewidths=(0.4, 0),
+                antialiaseds=True
+                )
+            patches_list.append(
+                hndls
+            )
+
+    patch_boxes = []
+    for patch in patches_list:
+        patchbox = DrawingArea(4, 13, 0, 0)
+        patchbox.add_artist(patch)
+        patch_boxes.append(patchbox)
+
+    all_boxes = []
+    for i in range(len(patch_boxes)):
+        all_boxes.append(patch_boxes[i])
+        all_boxes.append(word_boxes[i])
+
+    # all_boxes.append(TextArea(
+    #                  "wwiii",
+    #                  textprops=dict(color="None", rotation=-90, size=8)
+    #                  ))
+
+    box = VPacker(children=all_boxes,
+                  align="center",
+                  pad=7, sep=7)
 
 
     # widths = [1 for i in range(len(orders) - 1)]
@@ -98,8 +264,8 @@ def main(
     fig = plt.figure(figsize=(paper_width, paper_width/aspect_ratio))
     if aspect_width > aspect_height:
         gs = gridspec.GridSpec(6*aspect_height, 6*aspect_width)
-    width_spacing = 2
-    height_spacing = .5
+    width_spacing = 2.5
+    height_spacing = .6
     gs.update(left=0.00, right=1,
               wspace=width_spacing, hspace=height_spacing)
     main_ax = plt.subplot(gs[3*aspect_height:, 4*aspect_width:])
@@ -115,12 +281,14 @@ def main(
         leg = []
         for obs_index, observable in enumerate(observable_list):
 
-            if observable == ["t", "t", "t", "t"] or \
-                    (observable == ["0", "0", "0", "0"] and indep_var == "energy"):
+            is_log = observable == ["t", "t", "t", "t"] or \
+                    (observable == ["0", "0", "0", "0"] and indep_var == "energy")
+            if is_log:
                 ax[obs_index].set_yscale("log", nonposy='clip')
                 # axis.ticklabel_format(style="plain")
             else:
-                ax[obs_index].set_yscale("linear")
+                # ax[obs_index].set_yscale("linear")
+                pass
 
             plt.setp(ax[0].get_xticklabels(), visible=False)
             plt.setp(ax[1].get_xticklabels(), visible=False)
@@ -136,6 +304,31 @@ def main(
             ax[3].set_xlabel(indep_var_label)
             ax[4].set_xlabel(indep_var_label)
             ax[5].set_xlabel(indep_var_label)
+
+            if indep_var == "energy":
+                major_ticks = np.arange(0, 351, 100)
+                # minor_ticks = np.arange(50, 351, 100)
+                x_minor_locator = AutoMinorLocator(n=2)
+                xmin = 0
+                xmax = 350
+            elif indep_var == "theta":
+                major_ticks = np.arange(0, 181, 60)
+                # minor_ticks = np.arange(30, 181, 60)
+                x_minor_locator = AutoMinorLocator(n=3)
+                xmin = 0
+                xmax = 180
+            # [axis.set_xticks(minor_ticks, minor=True) for axis in ax]
+            [axis.set_xticks(major_ticks) for axis in ax]
+            [axis.xaxis.set_minor_locator(x_minor_locator) for axis in ax]
+
+            if is_log is False:
+                if observable != ['0', '0', '0', '0']:
+                    ax[obs_index].ticklabel_format(style='sci', axis='y', scilimits=(-2, 1))
+                y_major_locator = MaxNLocator(axis='y', nbins=7, prune="lower")
+                y_minor_locator = AutoMinorLocator(n=2)
+                ax[obs_index].yaxis.set_major_locator(y_major_locator)
+                ax[obs_index].yaxis.set_minor_locator(y_minor_locator)
+
             # ax.set_ylabel('')
 
             # Create the description box
@@ -158,9 +351,9 @@ def main(
                 npwa_name = npwa_filename(observable, param_var, param)
                 npwa_file = DataFile().read(os.path.join("../npwa_data/", npwa_name))
                 npwa_plot, = ax[obs_index].plot(npwa_file[0], npwa_file[1],
-                                                color="black", linewidth=2,
+                                                color="black", linewidth=1,
                                                 label="NPWA", zorder=10,
-                                                linestyle="-.")
+                                                linestyle="--")
             except FileNotFoundError:
                 npwa_plot = None
 
@@ -172,9 +365,9 @@ def main(
                 # dob_name = dob_filename(p_decimal_list[0], Lambda_b, obs_name)
                 dob_name = dob_filename(
                         observable, indep_var, ivar_start, ivar_stop,
-                        ivar_step, param_var, param, order,
-                        Lambda_b, X_ref_hash,
-                        p_decimal_list[0], prior_set, h, convention,
+                        ivar_step, param_var, param, order, ignore_orders,
+                        Lambda_b, lambda_mult, X_ref_hash,
+                        p_decimal_list[0], prior_set, h, convention, None,
                         cbar_lower, cbar_upper, sigma,
                         potential_info=None)
                 dob_file = DataFile().read(os.path.join(error_band_dir, dob_name))
@@ -191,9 +384,13 @@ def main(
 
             # Decide the padding above/below the lines
             # This weights values far from 0 more heavily.
-            ymin = obs_min - .25 * abs(obs_min)
-            ymax = obs_max + .25 * abs(obs_max)
+            ymin = obs_min - .1 * abs(obs_min)
+            ymax = obs_max + .1 * abs(obs_max)
+
+            if observable == ['0', '0', '0', '0'] and indep_var == "energy":
+                ymax = 1e2
             ax[obs_index].set_ylim([ymin, ymax])
+            ax[obs_index].set_xlim([xmin, xmax])
 
             # Start layering the plots
             for i, order in enumerate(orders):
@@ -201,9 +398,9 @@ def main(
 
                 dob_name = dob_filename(
                         observable, indep_var, ivar_start, ivar_stop,
-                        ivar_step, param_var, param, order,
-                        Lambda_b, X_ref_hash,
-                        p_decimal_list[0], prior_set, h, convention,
+                        ivar_step, param_var, param, order, ignore_orders,
+                        Lambda_b, lambda_mult, X_ref_hash,
+                        p_decimal_list[0], prior_set, h, convention, None,
                         cbar_lower, cbar_upper, sigma,
                         potential_info=None)
                 dob_file = DataFile().read(os.path.join(error_band_dir, dob_name))
@@ -221,9 +418,9 @@ def main(
                     # dob_name = dob_filename(p, Lambda_b, obs_name)
                     dob_name = dob_filename(
                         observable, indep_var, ivar_start, ivar_stop,
-                        ivar_step, param_var, param, order,
-                        Lambda_b, X_ref_hash,
-                        p, prior_set, h, convention,
+                        ivar_step, param_var, param, order, ignore_orders,
+                        Lambda_b, lambda_mult, X_ref_hash,
+                        p, prior_set, h, convention, None,
                         cbar_lower, cbar_upper, sigma,
                         potential_info=None)
                     dob_file = DataFile().read(os.path.join(error_band_dir,
@@ -275,25 +472,39 @@ def main(
         text_str = ""
         if observable != ['t', 't', 't', 't']:
             text_str += param_var_label + r" = " + str(param) + param_var_units + ", "
-        text_str += r"$\Lambda_b = " + str(Lambda_b) + r"$\,MeV"
+        text_str += r"$\Lambda_b = " + str(Lambda_b*lambda_mult) + r"$\,MeV"
 
-        ax[2].text(.5, 1.1, text_str,
-                    horizontalalignment='center',
-                    verticalalignment='bottom',
-                    multialignment='center',
-                    transform=ax[2].transAxes,
-                    # bbox=dict(facecolor='white', alpha=1, boxstyle='round', pad=.3),
-                    zorder=20)
+        legend_index = 2
+
+        anchored_box = AnchoredOffsetbox(
+         loc=2,
+         child=box, pad=0.,
+         frameon=True,
+         bbox_to_anchor=(1.05, 1),
+         bbox_transform=ax[legend_index].transAxes,
+         borderpad=0.
+         )
+
+        ax[legend_index].add_artist(anchored_box)
+        ax[legend_index].add_artist(leg[legend_index])
+
+        # ax[2].text(.5, 1.1, text_str,
+        #            horizontalalignment='center',
+        #            verticalalignment='bottom',
+        #            multialignment='center',
+        #            transform=ax[2].transAxes,
+        #            # bbox=dict(facecolor='white', alpha=1, boxstyle='round', pad=.3),
+        #            zorder=20)
 
         # Legend below small plots for box plot
-        ax[0].legend(bbox_to_anchor=(-.0, 1.1, 2, 4*aspect_height),
-                     loc=3, ncol=6, mode="expand", borderaxespad=0.,
-                     handles=my_handles, prop={'size': 10},
-                     handletextpad=-.1,
-                     handler_map=handler_dict,
-                     handlelength=1.5)
+        # ax[0].legend(bbox_to_anchor=(-.0, 1.1, 2, 4*aspect_height),
+        #              loc=3, ncol=6, mode="expand", borderaxespad=0.,
+        #              handles=my_handles, prop={'size': 10},
+        #              handletextpad=-.1,
+        #              handler_map=handler_dict,
+        #              handlelength=1.5)
 
-        ax[0].add_artist(leg[0])
+        # ax[0].add_artist(leg[0])
 
         # leg = plt.gca().get_legend()
 
@@ -314,11 +525,18 @@ def main(
         #         Lambda_b, p_decimal_list)
         plot_name = subplot_6_obs_error_bands_filename(
                 observable_list, indep_var, ivar_start, ivar_stop, ivar_step,
-                param_var, param, orders, Lambda_b, X_ref_hash, p_decimal_list,
-                prior_set, h, convention, cbar_lower, cbar_upper, sigma,
+                param_var, param, orders, ignore_orders, Lambda_b, lambda_mult, X_ref_hash,
+                p_decimal_list, prior_set, h, convention, None,
+                cbar_lower, cbar_upper, sigma,
                 potential_info=None)
         plt.draw()
         plt.savefig(os.path.join(output_dir, plot_name), bbox_inches="tight")
+
+        # To fix the blurriness issue when pdf is put into a LaTeX doc.
+        # Generate .eps file and then change to .pdf
+        # I don't know the root problem.
+        call(["epstopdf", os.path.join(output_dir, plot_name)])
+        call(["rm", os.path.join(output_dir, plot_name)])
 
         # Clear the axes for the next observable/parameter.
         [axis.cla() for axis in ax]
@@ -346,6 +564,10 @@ if __name__ == "__main__":
         "Lambda_b",
         help="The breakdown scale of the EFT, given in MeV.",
         type=int)
+    parser.add_argument(
+        "lambda_mult",
+        help="The lambda value that multiplies Lambda_b.",
+        type=float)
     parser.add_argument(
         "interaction",
         help="The type of scattering interaction.",
@@ -380,6 +602,11 @@ if __name__ == "__main__":
         help="The orders to show on the plots.",
         type=str, nargs="+",
         required=True, choices=["LOp", "LO", "NLO", "N2LO", "N3LO", "N4LO"])
+    parser.add_argument(
+        "--ignore_orders",
+        help="The kth orders (Q^k) to ignore when calculating DoBs.",
+        nargs="+", type=int,
+        choices=[0, 1, 2, 3, 4, 5])
     parser.add_argument(
         "--indep_var_range", "--irange",
         type=int, nargs=3,
@@ -437,6 +664,11 @@ if __name__ == "__main__":
         cup = arg_dict["cbar_upper"]
         clow = arg_dict["cbar_lower"]
 
+    if arg_dict["ignore_orders"] is None:
+        ignore_orders = []
+    else:
+        ignore_orders = arg_dict["ignore_orders"]
+
     main(
         error_band_dir=arg_dict["error_band_dir"],
         output_dir=arg_dict["output_dir"],
@@ -447,8 +679,10 @@ if __name__ == "__main__":
         param_list=param_lst,
         observable_list=arg_dict["observables"],
         Lambda_b=arg_dict["Lambda_b"],
+        lambda_mult=arg_dict["lambda_mult"],
         p_decimal_list=arg_dict["p_decimals"],
         orders=arg_dict["orders"],
+        ignore_orders=ignore_orders,
         interaction=arg_dict["interaction"],
         X_ref_hash=arg_dict["X_ref_hash"],
         prior_set=arg_dict["prior_set"],

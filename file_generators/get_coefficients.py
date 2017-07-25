@@ -74,10 +74,11 @@ def main(
                 param_var, param, X_ref_hash, convention, lambda_mult*Lambda_b,
                 *observable_arrays, X_NPWA_list=None)
 
+            single_expansion = False
             if indep_var == "theta":
                 Q_val = Q_ratio(E_to_p(param, interaction), lambda_mult*Lambda_b)
             else:
-                Q_val = Q_ratio(E_to_p(ind_variables, interaction), lambda_mult*Lambda_b)
+                Q_val = Q_ratio(E_to_p(ind_variables, interaction), lambda_mult*Lambda_b, single_expansion=single_expansion)
 
             c_tuple = coeffs(Q_val, *observable_arrays, X_ref=X_ref)
 
@@ -97,7 +98,12 @@ def main(
                 ivar_step, param_var, param, order_list[-1],
                 Lambda_b, lambda_mult, X_ref_hash, convention,
                 potential_info=None)
-            c_file.export_to_file(os.path.join(output_dir, final_file))
+            if Lambda_b == 1:
+                is_scientific = True
+            else:
+                is_scientific = False
+            c_file.export_to_file(os.path.join(output_dir, final_file),
+                                  is_scientific=is_scientific)
 
 
 if __name__ == "__main__":

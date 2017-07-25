@@ -1,13 +1,14 @@
 # Functions relating to the EFT expansion of observables.
 
-
+import sys
 import os
+sys.path.append(os.path.expanduser(
+    '~/Dropbox/Bayesian_codes/observable_analysis_Jordan'))
 import numpy as np
 from numpy import array, vectorize, zeros
-from src.lowlevel.filenames import observable_filename, dob_filename
+from src.lowlevel.filenames import observable_filename, dob_filename, npwa_filename
 from src.lowlevel.datafile import DataFile
-from src.lowlevel.kinematics import E_to_p
-
+from src.lowlevel.kinematics import E_to_p, p_to_E
 
 def order_to_power(order):
     """Relates the order (LO, NLO, N2LO, etc.) to the power of Q in chiral EFT."""
@@ -31,6 +32,11 @@ def Q_approx(p, Lambda_b, single_expansion=False):
 # A vectorized version of Q that can accept an array of momenta
 Q_ratio = vectorize(Q_approx, excluded=['Lambda_b'])
 
+
+# e = 200
+# print(Q_approx(E_to_p(e, "np"), 600, single_expansion=False))
+# p = 138
+# print(p_to_E(p, "np"))
 
 def get_average_scale(indep_var_list, func_list):
     """Return the average magnitude of a function over a range of values.
@@ -246,8 +252,9 @@ def load_observable_data(*observable_files):
 
 def find_percent_success(
     error_band_dir, observable_list, theta_grid, energy_grid, order_list,
-    Lambda_b, lambda_mult, X_ref_hash, p_decimal, prior_set, h, convention,
-    cbar_lower=None, cbar_upper=None, sigma=None, potential_info=None
+    ignore_orders, Lambda_b, lambda_mult, X_ref_hash, p_decimal, prior_set,
+    h, convention, indep_var_list=None, cbar_lower=None, cbar_upper=None,
+    sigma=None, potential_info=None
         ):
     theta_start = 0
     theta_stop = 181
@@ -258,34 +265,64 @@ def find_percent_success(
     # N = len(theta_grid) * len(energy_grid)
     N = 0
     n_successes = 0
+    npwa_dir = "../npwa_data/"
+    npwa_theta_start = 0
+    npwa_theta_stop = 180
+    npwa_theta_step = 1
+    npwa_energy_start = 1
+    npwa_energy_stop = 351
+    npwa_energy_step = 1
     for observable in observable_list:
-        for i in range(len(order_list)-h):
+        # for i in range(len(order_list)-h):
+        if h == 1:  # Compare to subsequent order
+            rng = len(order_list) - 1
+        elif h > 1:  # Compare to npwa
+            rng = len(order_list)
+        for i in range(rng):
             j = i + h
             if observable == ['t', 't', 't', 't']:
                 given_file_name = dob_filename(
                     obs_indices=observable, indep_var="energy", ivar_start=energy_start,
                     ivar_stop=energy_stop, ivar_step=energy_step, param_var="theta", param=0,
-                    order=order_list[i], Lambda_b=Lambda_b, lambda_mult=lambda_mult,
-                    X_ref_hash=X_ref_hash,
-                    p_decimal=p_decimal, prior_str=prior_set, h=h, convention=convention,
-                    cbar_lower=cbar_lower, cbar_upper=cbar_upper, sigma=sigma,
-                    potential_info=potential_info)
-                test_file_name = dob_filename(
-                    obs_indices=observable, indep_var="energy", ivar_start=energy_start,
-                    ivar_stop=energy_stop, ivar_step=energy_step, param_var="theta", param=0,
-                    order=order_list[j], Lambda_b=Lambda_b, lambda_mult=lambda_mult,
-                    X_ref_hash=X_ref_hash,
-                    p_decimal=p_decimal, prior_str=prior_set, h=h, convention=convention,
+                    order=order_list[i], ignore_orders=ignore_orders, Lambda_b=Lambda_b,
+                    lambda_mult=lambda_mult, X_ref_hash=X_ref_hash,
+                    p_decimal=p_decimal, prior_str=prior_set, h=h,
+                    convention=convention, indep_var_list=indep_var_list,
                     cbar_lower=cbar_lower, cbar_upper=cbar_upper, sigma=sigma,
                     potential_info=potential_info)
                 given_file = DataFile().read(os.path.join(error_band_dir, given_file_name))
-                test_file = DataFile().read(os.path.join(error_band_dir, test_file_name))
+                if h == 1:
+                    test_file_name = dob_filename(
+                        obs_indices=observable, indep_var="energy", ivar_start=energy_start,
+                        ivar_stop=energy_stop, ivar_step=energy_step, param_var="theta", param=0,
+                        order=order_list[j], ignore_orders=ignore_orders, Lambda_b=Lambda_b,
+                        lambda_mult=lambda_mult, X_ref_hash=X_ref_hash,
+                        p_decimal=p_decimal, prior_str=prior_set, h=h,
+                        convention=convention, indep_var_list=indep_var_list,
+                        cbar_lower=cbar_lower, cbar_upper=cbar_upper, sigma=sigma,
+                        potential_info=potential_info)
+                    test_file = DataFile().read(os.path.join(error_band_dir, test_file_name))
+                elif h > 1:
+                    test_file_name = npwa_filename(observable, param_name="", param_val=None)
+                    test_file = DataFile().read(os.path.join(npwa_dir, test_file_name))
+
                 for energy in energy_grid:
                     N += 1
-                    row = int((energy - energy_start)/energy_step)
+                    row = None
+                    if indep_var_list is None:
+                        row = int((energy - energy_start)/energy_step)
+                    else:
+                        # print(indep_var_list)
+                        for index, ivar in enumerate(indep_var_list):
+                            if ivar == energy:
+                                row = index
+                    npwa_row = int((energy - npwa_energy_start)/npwa_energy_step)
                     upper_bound = given_file[row, 3]
                     lower_bound = given_file[row, 2]
-                    test_observable = test_file[row, 1]
+                    if h == 1:
+                        test_observable = test_file[row, 1]
+                    elif h > 1:
+                        test_observable = test_file[npwa_row, 1]
                     if lower_bound <= test_observable <= upper_bound:
                         n_successes += 1
             else:
@@ -293,27 +330,44 @@ def find_percent_success(
                     given_file_name = dob_filename(
                         obs_indices=observable, indep_var="theta", ivar_start=theta_start,
                         ivar_stop=theta_stop, ivar_step=theta_step, param_var="energy", param=energy,
-                        order=order_list[i], Lambda_b=Lambda_b, lambda_mult=lambda_mult,
-                        X_ref_hash=X_ref_hash,
-                        p_decimal=p_decimal, prior_str=prior_set, h=h, convention=convention,
-                        cbar_lower=cbar_lower, cbar_upper=cbar_upper, sigma=sigma,
-                        potential_info=potential_info)
-                    test_file_name = dob_filename(
-                        obs_indices=observable, indep_var="theta", ivar_start=theta_start,
-                        ivar_stop=theta_stop, ivar_step=theta_step, param_var="energy", param=energy,
-                        order=order_list[j], Lambda_b=Lambda_b, lambda_mult=lambda_mult,
-                        X_ref_hash=X_ref_hash,
-                        p_decimal=p_decimal, prior_str=prior_set, h=h, convention=convention,
+                        order=order_list[i], ignore_orders=ignore_orders, Lambda_b=Lambda_b,
+                        lambda_mult=lambda_mult, X_ref_hash=X_ref_hash,
+                        p_decimal=p_decimal, prior_str=prior_set, h=h,
+                        convention=convention, indep_var_list=indep_var_list,
                         cbar_lower=cbar_lower, cbar_upper=cbar_upper, sigma=sigma,
                         potential_info=potential_info)
                     given_file = DataFile().read(os.path.join(error_band_dir, given_file_name))
-                    test_file = DataFile().read(os.path.join(error_band_dir, test_file_name))
+                    if h == 1:
+                        test_file_name = dob_filename(
+                            obs_indices=observable, indep_var="theta", ivar_start=theta_start,
+                            ivar_stop=theta_stop, ivar_step=theta_step, param_var="energy", param=energy,
+                            order=order_list[j], ignore_orders=ignore_orders,
+                            Lambda_b=Lambda_b, lambda_mult=lambda_mult, X_ref_hash=X_ref_hash,
+                            p_decimal=p_decimal, prior_str=prior_set, h=h,
+                            convention=convention, indep_var_list=indep_var_list,
+                            cbar_lower=cbar_lower, cbar_upper=cbar_upper, sigma=sigma,
+                            potential_info=potential_info)
+                        test_file = DataFile().read(os.path.join(error_band_dir, test_file_name))
+                    elif h > 1:
+                        test_file_name = npwa_filename(observable, param_name="energy", param_val=energy)
+                        test_file = DataFile().read(os.path.join(npwa_dir, test_file_name))
+
                     for theta in theta_grid:
                         N += 1
-                        row = int((theta - theta_start)/theta_step)
+                        row = None
+                        if indep_var_list is None:
+                            row = int((theta - theta_start)/theta_step)
+                        else:
+                            for index, ivar in enumerate(indep_var_list):
+                                if ivar == theta:
+                                    row = index
+                        npwa_row = int((theta - npwa_theta_start)/npwa_theta_step)
                         upper_bound = given_file[row, 3]
                         lower_bound = given_file[row, 2]
-                        test_observable = test_file[row, 1]
+                        if h == 1:
+                            test_observable = test_file[row, 1]
+                        elif h > 1:
+                            test_observable = test_file[npwa_row, 1]
                         if lower_bound <= test_observable <= upper_bound:
                             n_successes += 1
 

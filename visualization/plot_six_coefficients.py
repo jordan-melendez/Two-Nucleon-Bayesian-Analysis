@@ -4,6 +4,7 @@ import matplotlib as mp
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
+import math
 from src.lowlevel.filenames import *
 from src.lowlevel.datafile import DataFile
 from matplotlib import rc
@@ -11,9 +12,12 @@ from matplotlib import rcParams
 import matplotlib.patches as mpatches
 from matplotlib.legend_handler import HandlerPatch
 from matplotlib.patches import Rectangle
+from matplotlib.ticker import MaxNLocator, AutoMinorLocator
+from matplotlib.offsetbox import AnchoredOffsetbox, TextArea, DrawingArea, HPacker, VPacker
+from matplotlib.ticker import MaxNLocator, AutoMinorLocator
+from subprocess import call
 
-
-rcParams['ps.distiller.res'] = 60000
+# rcParams['ps.distiller.res'] = 60000
 rc('font', **{'family': 'serif', 'serif': ['Computer Modern'], 'size': 10})
 # # for Palatino and other serif fonts use:
 # rc('font',**{'family':'serif','serif':['Palatino']})
@@ -47,10 +51,85 @@ def main(
         "N3LO": plt.get_cmap("Blues"),
         "N4LO": plt.get_cmap("Reds")
     }
+    color_list = [
+        plt.get_cmap("Oranges")(0.4),
+        plt.get_cmap("Greens")(0.6),
+        plt.get_cmap("Blues")(0.6),
+        plt.get_cmap("Reds")(0.6)
+        ]
+    linestyle_list = [
+        "-",                # Solid
+        (1, (1, 2, 6, 2)),  # My dashed-dot
+        # ":",                # Dotted
+        (1, (1.2, 1.3)),    # My dotted
+        (1, (3, 2))         # My dashed
+    ]
+    linewidth_list = [
+        .9,
+        1,
+        1.2,
+        1
+    ]
+
+    kw_list = []
+    for color, ls, lw in zip(color_list, linestyle_list, linewidth_list):
+        kw_list.append(
+            {
+                "color": color,
+                "linestyle": ls,
+                "linewidth": lw
+            }
+            )
+
+    word_boxes = []
+    orders_list = [r"NLO", r"N$^2$LO", r"N$^3$LO", r"N$^4$LO"]
+    for word in orders_list:
+        ta = TextArea(
+                     word,
+                     textprops=dict(color="k",
+                                    rotation=-90,
+                                    va="bottom",
+                                    ha="right",
+                                    rotation_mode="anchor",
+                                    size=8
+                                    ),
+                     )
+        word_boxes.append(
+            ta
+        )
+
+    lines = []
+    for i in range(len(orders)):
+        if i == 0:
+            lines.append(plt.Line2D((0, 0), (0, 14), **kw_list[i]))
+        else:
+            lines.append(plt.Line2D((0, 0), (0, 14), **kw_list[i]))
+
+    line_boxes = []
+    for line in lines:
+        linebox = DrawingArea(0, 13, 0, 0)
+        linebox.add_artist(line)
+        line_boxes.append(linebox)
+
+    all_boxes = []
+    for i in range(len(line_boxes)):
+        all_boxes.append(line_boxes[i])
+        all_boxes.append(word_boxes[i])
+
+    # all_boxes.append(TextArea(
+    #                  "wwiii",
+    #                  textprops=dict(color="None", rotation=-90, size=8)
+    #                  ))
+
+    box = VPacker(children=all_boxes,
+                  align="center",
+                  pad=7, sep=7)
+
 
     fill_transparency = 1
     x = np.arange(ivar_start, ivar_stop, ivar_step)
 
+    order_dict = {"LO": 2, "NLO": 3, "N2LO": 4, "N3LO": 5, "N4LO": 6}
 
     # widths = [1 for i in range(len(orders) - 1)]
     # widths.append(len(orders)+2)
@@ -68,7 +147,7 @@ def main(
         param_var_units = r"$\,MeV"
     else:
         param_var = "theta"
-        indep_var_label = r"$E$ (MeV)"
+        indep_var_label = r"$E_{\mathrm{lab}}$ (MeV)"
         param_var_label = r"$\theta"
         param_var_units = r"^\circ$"
 
@@ -110,6 +189,9 @@ def main(
             # Make small plots have no x tick labels
             # plt.setp([a.get_xticklabels() for a in ax[:-1]], visible=False)
 
+            ax[0].set_ylabel(r"$c_n$")
+            ax[3].set_ylabel(r"$c_n$")
+
             ax[3].set_xlabel(indep_var_label)
             ax[4].set_xlabel(indep_var_label)
             ax[5].set_xlabel(indep_var_label)
@@ -130,6 +212,33 @@ def main(
             #             bbox=dict(facecolor='white', alpha=1, boxstyle='round', pad=.3),
             #             zorder=20)
 
+            if indep_var == "energy":
+                major_ticks = np.arange(0, 351, 100)
+                # minor_ticks = np.arange(50, 351, 100)
+                x_minor_locator = AutoMinorLocator(n=2)
+                xmin = 0
+                xmax = 350
+            elif indep_var == "theta":
+                major_ticks = np.arange(0, 181, 60)
+                # minor_ticks = np.arange(30, 181, 60)
+                x_minor_locator = AutoMinorLocator(n=3)
+                xmin = 0
+                xmax = 180
+            # [axis.set_xticks(minor_ticks, minor=True) for axis in ax]
+            [axis.set_xticks(major_ticks) for axis in ax]
+            [axis.xaxis.set_minor_locator(x_minor_locator) for axis in ax]
+
+            for i, axis in enumerate(ax):
+                y_major_locator = MaxNLocator(axis='y', nbins=6, prune="lower")
+                y_minor_locator = AutoMinorLocator(n=2)
+                axis.yaxis.set_major_locator(y_major_locator)
+                axis.yaxis.set_minor_locator(y_minor_locator)
+            # ylocator_list = [MaxNLocator(axis='y', nbins=7) for axis in ax]
+            # [axis.yaxis.set_major_locator(ylocator_list[i]) for i, axis in enumerate(ax)]
+            # Set number of ticks
+            # [axis.locator_params(axis='y', numticks=6) for axis in ax]
+            # plt.locator_params(axis='y', numticks=6)
+
             if obs_index == 0:
                 legend_patches = []
 
@@ -147,49 +256,90 @@ def main(
                 coeff_file = DataFile().read(os.path.join(coeff_dir, coeff_name))
 
                 if i == 0:
-                    coeff = coeff_file[2]
+                    coeff = coeff_file[order_dict[order]]
                     coeff_min = np.nanmin(coeff)
                     coeff_max = np.nanmax(coeff)
                 else:
                     old_coeff = coeff
-                    coeff = coeff_file[2+i]
+                    coeff = coeff_file[order_dict[order]]
                     # Probably the worst way to do this.
                     coeff_min = min(np.nanmin(np.minimum(old_coeff, coeff)), coeff_min)
                     coeff_max = max(np.nanmax(np.maximum(old_coeff, coeff)), coeff_max)
 
                 # Plot the lines
-                ax[obs_index].plot(x, coeff, color=color_dict[order](.6),
-                                   linewidth=1, label=order, zorder=i)
+                ax[obs_index].plot(x, coeff,
+                                   # color=color_dict[order](.6),
+                                   color=color_list[i],
+                                   linewidth=linewidth_list[i],
+                                   label=order,
+                                   zorder=i/5,
+                                   ls=linestyle_list[i])
+
+                # ax[obs_index].plot(x, np.zeros(len(x)), zorder=2,
+                #                    ls="-.", color="black")
+
+                # ax[obs_index].axhline(0, linestyle='--', color='k', linewidth=.5)  # horizontal lines
 
                 if obs_index == 0:
                     
                     # Use block patches instead of lines
                     # Use innermost "dark" color of bands for legend
-                    legend_patches.append(
-                        mpatches.Rectangle(
-                            (0.5, 0.5), 0.25, 0.25,
-                            # color=color_dict[order](len(p_decimal_list) / (len(p_decimal_list) + 1)),
-                            edgecolor=color_dict[order](.9),
-                            facecolor=color_dict[order](.6),
-                            label=order,
-                            linewidth=1
-                        ))
-
+                    # legend_patches.append(
+                    #     mpatches.Rectangle(
+                    #         (0.5, 0.5), 0.25, 0.25,
+                    #         # color=color_dict[order](len(p_decimal_list) / (len(p_decimal_list) + 1)),
+                    #         edgecolor=color_dict[order](.9),
+                    #         facecolor=color_dict[order](.6),
+                    #         label=order,
+                    #         linewidth=1
+                    #     ))
+                    legend_patches.append(ax[obs_index].legend().get_lines()[i])
+                    
             # Decide the padding above/below the lines
             # This weights values far from 0 more heavily.
-            ymin = coeff_min - .25 * abs(coeff_min)
-            ymax = coeff_max + .25 * abs(coeff_max)
+            ymin = coeff_min - .1 * max(abs(coeff_min), abs(coeff_max))
+            # ymin = coeff_min
+            try:
+                ymin_magnitude = min(int(math.floor(math.log10(abs(ymin)))), 0)
+                # ymin = round(ymin, -ymin_magnitude)
+                ymin = np.sign(ymin) * math.ceil(abs(ymin) / 10**ymin_magnitude) * 10**ymin_magnitude
+            except ValueError:
+                pass
+            # print(ymin)
+            ymax = coeff_max + .1 * max(abs(coeff_min), abs(coeff_max))
+            # ymax = coeff_max
+            try:
+                ymax_magnitude = min(int(math.floor(math.log10(abs(ymax)))), 0)
+                # ymax = round(ymax, -ymax_magnitude)
+                ymax = np.sign(ymax) * math.ceil(abs(ymax) / 10**ymax_magnitude) * 10**ymax_magnitude
+            except ValueError:
+                pass
+            if ymin == 0 and ymax == 0:
+                ymin = -1
+                ymax = 1
             ax[obs_index].set_ylim([ymin, ymax])
+            ax[obs_index].set_xlim([xmin, xmax])
 
-
-                
+            # Plot the 0-line
+            ax[obs_index].plot(
+                x, np.zeros(len(x)),
+                color=mp.rcParams['xtick.color'],
+                linewidth=mp.rcParams['xtick.major.width'],
+                zorder=0,
+                ls="--"
+                )
 
             # Legend on main plot
             # ax[-1].legend(loc="best", handles=my_handles)
-            extra = Rectangle((0, 0), .1, .1, fc="w", fill=False, edgecolor='none', linewidth=0)
+            extra = Rectangle((0, 0), .1, .1, fc="w", fill=False,
+                              edgecolor='none', linewidth=0)
             # leg = ax[-1].legend([extra], [], title=text_str, loc="best", handlelength=0, handletextpad=0, fancybox=True)
             obs_name = indices_to_observable_name(observable)
-            leg.append(ax[obs_index].legend([extra], [obs_name], loc='best', handlelength=0, handletextpad=0, fancybox=True, prop={'size': 10}))
+            leg.append(ax[obs_index].legend([extra], [obs_name], loc='best',
+                                            handlelength=0, handletextpad=0,
+                                            fancybox=True, prop={'size': 10}
+                                            )
+                       )
             # plt.setp(ax[-1].get_legend_handles_labels()[1], multialignment='center')
 
         # handler_dict = dict(zip(legend_patches, [HandlerSquare() for i in legend_patches]))
@@ -199,23 +349,69 @@ def main(
             text_str += param_var_label + r" = " + str(param) + param_var_units + ", "
         text_str += r"$\Lambda_b = " + str(Lambda_b*lambda_mult) + r"$\,MeV"
 
-        ax[2].text(.5, 1.1, text_str,
-                    horizontalalignment='center',
-                    verticalalignment='bottom',
-                    multialignment='center',
-                    transform=ax[2].transAxes,
-                    # bbox=dict(facecolor='white', alpha=1, boxstyle='round', pad=.3),
-                    zorder=20)
+        legend_index = 2
+
+        # ax[2].text(.5, 1.1, text_str,
+        #             horizontalalignment='center',
+        #             verticalalignment='bottom',
+        #             multialignment='center',
+        #             transform=ax[2].transAxes,
+        #             # bbox=dict(facecolor='white', alpha=1, boxstyle='round', pad=.3),
+        #             zorder=20)
 
         # Legend below small plots for box plot
-        ax[0].legend(bbox_to_anchor=(-.0, 1.1, 2, 4*aspect_height),
-                     loc=3, ncol=6, mode="expand", borderaxespad=0.,
-                     handles=legend_patches, prop={'size': 10},
-                     # handletextpad=-.1,
-                     # handler_map=handler_dict,
-                     handlelength=1.5)
+        # ax[0].legend(bbox_to_anchor=(-.0, 1.1, 2, 4*aspect_height),
+        #              loc=3,
+        #              ncol=4,
+        #              # mode="expand",
+        #              # borderaxespad=0.,
+        #              handles=legend_patches,
+        #              prop={'size': 8},
+        #              # handletextpad=-.1,
+        #              # handler_map=handler_dict,
+        #              # handlelength=1
+        #              )
+        # ax[legend_index].legend(
+        #              # bbox_to_anchor=(-.0, 1.1, 2, 4*aspect_height),
+        #              bbox_to_anchor=(0, 1.1, 1, 2),
+        #              loc="lower center",
+        #              ncol=4,
+        #              # mode="expand",
+        #              borderaxespad=0.,
+        #              handles=legend_patches,
+        #              prop={'size': 8},
+        #              # handletextpad=-.1,
+        #              # handler_map=handler_dict,
+        #              handlelength=2.15,
+        #              handletextpad=.5
+        #              )
 
-        ax[0].add_artist(leg[0])
+        anchored_box = AnchoredOffsetbox(
+         loc=2,
+         child=box, pad=0.,
+         frameon=True,
+         bbox_to_anchor=(1.05, 1),
+         bbox_transform=ax[legend_index].transAxes,
+         borderpad=0.
+         )
+
+        ax[legend_index].add_artist(anchored_box)
+        # ax[2].legend(
+        #              # bbox_to_anchor=(-.0, 1.1, 2, 4*aspect_height),
+        #              bbox_to_anchor=(1.1, 0, 1.5, 1),
+        #              loc="lower left",
+        #              # ncol=4,
+        #              # nrows=4,
+        #              # mode="expand",
+        #              borderaxespad=0.,
+        #              handles=legend_patches,
+        #              prop={'size': 8},
+        #              # handletextpad=-.1,
+        #              # handler_map=handler_dict,
+        #              # handlelength=1
+        #              )
+
+        ax[legend_index].add_artist(leg[legend_index])
 
         # leg = plt.gca().get_legend()
 
@@ -240,6 +436,12 @@ def main(
                 convention, potential_info=None)
         plt.draw()
         plt.savefig(os.path.join(output_dir, plot_name), bbox_inches="tight")
+
+        # To fix the blurriness issue when pdf is put into a LaTeX doc.
+        # Generate .eps file and then change to .pdf
+        # I don't know the root problem.
+        call(["epstopdf", os.path.join(output_dir, plot_name)])
+        call(["rm", os.path.join(output_dir, plot_name)])
 
         # Clear the axes for the next observable/parameter.
         [axis.cla() for axis in ax]
